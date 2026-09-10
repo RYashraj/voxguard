@@ -1,84 +1,100 @@
-# VoxGuard
+# VOXGUARD — Voice Deepfake Detection
 
-**AI-powered real-time voice cloning & impersonation detection**
-Built for Smart India Hackathon 2026 — PS SIH26104 (Cyber Security Cell, AICTE)
-Team Crackjack
+VOXGUARD is an AI-powered cybersecurity solution designed to detect AI-generated and cloned voices in real time and identify potential voice impersonation attacks.
 
-## Problem
-Voice cloning tech can now convincingly impersonate a real person in seconds. Attackers use this to trick employees or individuals **during a live call** into approving fraudulent transactions or leaking sensitive information. Traditional verification (caller ID, callback, "I recognize this voice") can no longer reliably catch it — and by the time a call ends, the damage is already done.
+## Current ML Module
 
-## What VoxGuard does
-VoxGuard processes call audio **in real time, chunk by chunk, while the call is still ongoing** — not after it ends — and produces a continuously updating "impersonation risk score."
+The current ML module evaluates incoming audio using two pretrained speech models:
 
-**Detection layers:**
-- **Acoustic/spectral analysis** — flags synthesis artifacts and spectral signatures typical of AI-generated speech
-- **Prosody analysis** — checks pitch variance, pause patterns, and speech rhythm against natural human speech
+### 1. Spectra-AASIST3
+- Speech anti-spoofing model
+- Detects whether speech is genuine or spoofed/synthetic
+- Input: 16 kHz mono audio
+- Class 0: Spoof / Fake
+- Class 1: Bona fide / Real
 
-**Risk engine:**
-- Aggregates per-chunk scores into a smoothed rolling risk score
-- Fires threshold-based alerts (low / medium / high) as risk builds during the call
+### 2. Bisher Wav2Vec2 Deepfake Audio Detection
+- Fine-tuned Wav2Vec2 audio classification model
+- Class 0: Fake
+- Class 1: Real
+- Currently used as a baseline for comparison
 
-**Alerting & prevention:**
-- Live dashboard shows the risk score updating in real time
-- High risk triggers a visible alert recommending secondary verification (e.g. callback)
-- Sensitive actions (e.g. approving a transaction) are gated behind verification once risk crosses threshold — the system can't stop the call itself, but it stops the human from acting blindly
+## Current Testing
 
-## How it works
-```
-Live/simulated call audio
-        │
-        ▼
-Audio chunked (2–4s windows)
-        │
-        ▼
-Multi-layer voice analysis (acoustic + prosody)
-        │
-        ▼
-Rolling risk scoring engine (aggregation + thresholds)
-        │
-        ▼
-Live dashboard + alerts + verification gate
-```
+Initial testing has been performed using genuine and AI-cloned voice samples.
 
-For the hackathon build, the "live call" is either a mic-captured live conversation or a pre-recorded file streamed in real chunks — architecturally identical to a real live call, since the whole pipeline works on a rolling stream, not a finished recording. Real telephony/carrier integration is future scope (see Roadmap).
+| Test | Audio | Actual Type | Bisher | Spectra-AASIST3 |
+|---|---|---|---|---|
+| T001 | clone_1.wav | AI-Cloned | REAL ❌ | FAKE ✅ |
+| T002 | real_1.wav | Genuine | REAL ✅ | REAL ✅ |
+| T003 | clone_2.wav | AI-Cloned | REAL ❌ | FAKE ✅ |
 
-## Tech Stack
-- **Backend:** FastAPI (Python), WebSockets, SQLite for session logging
-- **ML:** PyTorch + HuggingFace Transformers (wav2vec2/AASIST-based spoof detection), librosa (prosody features), pydub (audio chunking)
-- **Frontend:** Next.js + Tailwind, WebSocket client, Recharts for live risk visualization
+### Initial Observation
 
-## Setup
-```bash
-# backend
-cd backend && pip install -r requirements.txt && uvicorn main:app --reload
+- Bisher: 1/3 correct
+- Spectra-AASIST3: 3/3 correct
+- Two false negatives were observed with Bisher.
+- Spectra correctly detected both tested AI-cloned samples.
 
-# frontend
-cd frontend && npm install && npm run dev
-```
+These results are based on a small initial test set and should not be considered final model accuracy.
 
-## Data contract
-Every risk update flowing from backend to frontend follows this shape:
-```json
-{
-  "chunk_id": "string",
-  "timestamp": "iso8601",
-  "chunk_score": 0.0,
-  "rolling_risk_score": 0.0,
-  "confidence": 0.0,
-  "flags": ["synthetic_artifact"],
-  "alert_level": "low"
-}
-```
+## Testing Strategy
 
-## Team
-- **Yashraj** — Integration, git, docs
-- **Shreyas** — Backend / real-time API
-- **Hetvi, Nandini** — ML pipeline (detection + risk scoring)
-- **Meet, Devikrishna** — Frontend / live dashboard
+Future testing will evaluate:
 
-## Roadmap (Phase 2)
-- Telecom/VoIP-level integration (carrier partnership, regulatory clearance)
-- Banking/enterprise call-center integration (media forking, Twilio-style stream APIs)
-- Cross-session speaker verification against enrolled genuine voice samples
-- Multilingual & regional accent support
-- On-device/edge inference for privacy-preserving deployment
+- Genuine voices
+- AI-cloned voices
+- Different speakers
+- Short audio samples
+- Noisy audio
+- Compressed / telephone-quality audio
+- Different accents and languages
+- Unseen voice-cloning methods
+- False positives and false negatives
+
+## Current Architecture
+
+Incoming Audio
+↓
+Audio Preprocessing
+↓
+Deepfake Detection
+↓
+Risk Score
+↓
+Alert / Verification Recommendation
+
+The planned system will process audio in short chunks to support real-time risk assessment.
+
+## Future Enhancements
+
+### Speaker Verification
+An optional second layer using a speaker-verification model such as ECAPA-TDNN can be added for enrolled trusted contacts.
+
+This layer would verify:
+
+"Is this actually the person they claim to be?"
+
+It would complement deepfake detection rather than replace it.
+
+### Additional Future Improvements
+
+- Robustness against telephone compression and noise
+- Detection of unseen cloning techniques
+- Indian language and regional accent testing
+- Context-aware fraud risk assessment
+- Privacy-preserving / edge inference
+- Improved adaptive risk scoring
+
+## Project Structure
+
+ml_model.py
+requirements.txt
+README.md
+.gitignore
+
+Local files such as virtual environments, test audio, results, and downloaded model weights are excluded from the repository.
+
+## Disclaimer
+
+The current results are preliminary and are intended for research and development. Model performance will be evaluated on a larger and more diverse test set before deployment.
