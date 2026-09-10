@@ -3,7 +3,7 @@
 **Team Crackjack — SIH26104 (AI-Powered Real-Time Voice Cloning Detection)**
 **Backend Lead:** Shreyas
 
-This repository contains the real-time FastAPI backend service that ingests audio chunks, processes them through ML detection models (`Spectra-AASIST3`), computes smoothed rolling risk scores, and broadcasts live risk updates via WebSockets.
+This repository contains the real-time FastAPI backend service that ingests audio chunks, processes them through ML detection models (`Spectra-AASIST3`), computes smoothed rolling risk scores, persists session history in SQLite, and broadcasts live risk updates via WebSockets.
 
 ---
 
@@ -22,7 +22,7 @@ Audio Input (Live Mic / Sliced WAV Chunks)
    RollingRiskAggregator (5-Chunk Weighted Window)
                │
                ▼
-      Threshold Logic (Low < 0.4 | Medium 0.4–0.7 | High > 0.7)
+   SQLite Session Logger (chunk_history + latency) ◄── non-blocking
                │
                ▼
    WebSocket Broadcast (/ws/session) -> Frontend Dashboard & Alert Gates
@@ -42,35 +42,46 @@ python -c "from transformers import AutoModel; AutoModel.from_pretrained('lab260
 
 ---
 
-## Configuration: `VOXGUARD_ML_MODE`
-
-The backend supports switching between the real ML model and simulation stub via environment variable:
+## Configuration & Environment Variables
 
 - **`VOXGUARD_ML_MODE=real`** *(Default)*: Runs real synchronous Spectra-AASIST3 model inference safely off the main event loop thread via `asyncio.to_thread`.
 - **`VOXGUARD_ML_MODE=stub`**: Runs simulated score scenario streams for local UI testing without requiring model weights.
-
-> [!WARNING]
-> Only `"real"` or `"stub"` are valid values. Any invalid value will immediately raise a `ValueError` configuration error.
+- **`VOXGUARD_DB_PATH`**: Configures the local SQLite database path. Defaults to source-file relative path `backend/data/voxguard.db`.
 
 ---
 
-## Quick Start
+## Database & Session History Logging
 
-### 1. Install Dependencies
+Every processed audio chunk is automatically persisted into a local SQLite database table (`chunk_history`) with:
+- `session_id`, `chunk_id`, `timestamp`
+- `chunk_score`, `rolling_risk_score`, `confidence`
+- `flags` (stored as JSON array)
+- `alert_level` (`low` | `medium` | `high`)
+- `inference_latency_ms` (exact ML inference execution time in milliseconds)
+
+> [!NOTE]
+> Database operations are executed asynchronously off the main event loop (`asyncio.to_thread`). Database errors log safe server-side warnings and **never** crash or interrupt WebSocket streaming.
+
+### Resetting the Database
+To reset the session history database:
 ```bash
-cd backend
-pip install -r requirements.txt
+# Simply remove the database file
+rm backend/data/voxguard.db
 ```
+The database and table schema will be recreated automatically on the next request or server startup.
 
-### 2. Run the Development Server
-```bash
-# Default mode (Real ML model)
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+---
 
-# Stub mode (Development / Testing)
-VOXGUARD_ML_MODE=stub uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-Interactive Swagger API documentation is available at `http://localhost:8000/docs`.
+## Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Health check endpoint (Returns `{"status": "ok"}`) |
+| `GET` | `/contract` | Returns an example JSON of the strict contract |
+| `GET` | `/sessions/{session_id}/history` | Returns chronological chunk history for a specific call session |
+| `WS` | `/ws/session` or `/ws/session/{session_id}` | WebSocket endpoint for live real-time risk streaming |
+| `POST` | `/start-simulation` | Starts Call Simulator |
+| `POST` | `/stop-simulation` | Stops running call simulation |
 
 ---
 
@@ -89,11 +100,6 @@ Every message streamed over `/ws/session` strictly follows this agreed JSON form
   "alert_level": "low"
 }
 ```
-
-### Thresholds & Alert Levels:
-- `low`: `rolling_risk_score < 0.40` (Safe call — Green)
-- `medium`: `0.40 <= rolling_risk_score <= 0.70` (Elevated risk — Yellow)
-- `high`: `rolling_risk_score > 0.70` (High risk AI clone / fraud — Red)
 
 ---
 

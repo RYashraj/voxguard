@@ -6,6 +6,14 @@ venv/
 .venv/
 env/
 
+# SQLite Database Artifacts
+data/*.db
+data/*.sqlite
+*.db
+*.sqlite
+*.db-wal
+*.db-shm
+
 # ML Models & HuggingFace Checkpoints
 .cache/
 huggingface/

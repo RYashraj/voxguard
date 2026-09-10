@@ -1,9 +1,11 @@
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 from app.models.schemas import (
     RiskUpdate,
@@ -14,6 +16,7 @@ from app.models.schemas import (
 from app.services.websocket_manager import ws_manager
 from app.services.simulator import sim_runner, simulate_call
 from app.utils.audio_generator import ensure_default_sample_audio
+from app.db.session_logger import init_db_async, get_session_history_async
 
 # Configure logging
 logging.basicConfig(
@@ -27,7 +30,7 @@ logger = logging.getLogger("voxguard-backend")
 async def lifespan(app: FastAPI):
     """
     Startup & shutdown events.
-    Ensures default sample call WAV exists so simulator is immediately functional.
+    Ensures default sample call WAV exists and initializes SQLite database schema.
     """
     logger.info("Initializing VoxGuard Backend...")
     try:
@@ -35,6 +38,13 @@ async def lifespan(app: FastAPI):
         logger.info(f"Default demo audio ready at: {sample_path}")
     except Exception as e:
         logger.warning(f"Could not generate default audio: {e}")
+
+    try:
+        await init_db_async()
+        logger.info("SQLite session database ready.")
+    except Exception as e:
+        logger.error(f"SQLite DB startup initialization error: {e}")
+
     yield
     logger.info("Shutting down VoxGuard Backend...")
     sim_runner.stop()
@@ -48,7 +58,6 @@ app = FastAPI(
 )
 
 # CORS Configuration
-# Allows requests from Next.js (http://localhost:3000), Vite (http://localhost:5173), and local dev hosts
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -64,10 +73,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-from pathlib import Path
-from fastapi.responses import HTMLResponse
 
 DEMO_HTML_PATH = Path(__file__).parent / "templates" / "demo.html"
 
@@ -85,17 +90,13 @@ async def get_demo_dashboard():
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def get_health():
-    """
-    Health check endpoint. Returns 200 with status ok.
-    """
+    """Health check endpoint. Returns 200 with status ok."""
     return HealthResponse(status="ok")
 
 
 @app.get("/contract", response_model=RiskUpdate, tags=["Contract"])
 async def get_contract_example():
-    """
-    Returns an example of the strict RiskUpdate data contract agreed across ML, Backend, and Frontend.
-    """
+    """Returns an example of the strict RiskUpdate data contract agreed across ML, Backend, and Frontend."""
     return RiskUpdate(
         chunk_id="chunk_001",
         timestamp="2026-09-10T15:00:00.000000+00:00",
@@ -107,24 +108,39 @@ async def get_contract_example():
     )
 
 
+@app.get("/sessions/{session_id}/history", tags=["History"])
+@app.get("/api/sessions/{session_id}/history", tags=["History"])
+async def get_session_history_endpoint(session_id: str):
+    """
+    Returns the full chronological chunk history for a specific call session.
+    """
+    history = await get_session_history_async(session_id)
+    if not history:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No history found for session '{session_id}'"
+        )
+    return {
+        "session_id": session_id,
+        "total_chunks": len(history),
+        "history": history
+    }
+
+
 @app.websocket("/ws/session")
 @app.websocket("/ws/session/{session_id}")
 async def websocket_session_endpoint(websocket: WebSocket, session_id: Optional[str] = None):
     """
     WebSocket endpoint for real-time live streaming of audio chunk risk updates.
-    Frontend clients connect here to receive continuous live updates during a call.
     """
     await ws_manager.connect(websocket)
     try:
-        # Send initial confirmation message
         await websocket.send_json({
             "event": "connected",
             "message": "Connected to VoxGuard real-time stream",
             "session_id": session_id or "default"
         })
-        
         while True:
-            # Keep connection open and listen for optional client commands (e.g. ping/heartbeat)
             data = await websocket.receive_text()
             logger.debug(f"Received client message: {data}")
     except WebSocketDisconnect:
@@ -138,9 +154,7 @@ async def websocket_session_endpoint(websocket: WebSocket, session_id: Optional[
 @app.post("/start-simulation", response_model=SimulationResponse, tags=["Simulator"])
 @app.post("/api/simulation/start", response_model=SimulationResponse, tags=["Simulator"])
 async def start_simulation_endpoint(request: Optional[SimulationRequest] = None):
-    """
-    Triggers the Call Simulator to stream audio chunks in real-time over the WebSocket.
-    """
+    """Triggers the Call Simulator to stream audio chunks in real-time over the WebSocket."""
     req = request or SimulationRequest()
     try:
         session_id = await sim_runner.start(
@@ -162,9 +176,7 @@ async def start_simulation_endpoint(request: Optional[SimulationRequest] = None)
 @app.post("/stop-simulation", response_model=SimulationResponse, tags=["Simulator"])
 @app.post("/api/simulation/stop", response_model=SimulationResponse, tags=["Simulator"])
 async def stop_simulation_endpoint():
-    """
-    Stops any currently active call simulation.
-    """
+    """Stops any currently active call simulation."""
     session_id = sim_runner.session_id or "none"
     sim_runner.stop()
     return SimulationResponse(

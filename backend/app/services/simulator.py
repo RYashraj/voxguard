@@ -1,5 +1,6 @@
 import os
 import io
+import time
 import uuid
 import wave
 import asyncio
@@ -10,12 +11,12 @@ from datetime import datetime, timezone
 from app.models.schemas import RiskUpdate
 from app.core.aggregator import RollingRiskAggregator
 from app.ml.analyzer import analyze_chunk_dispatch
+from app.db.session_logger import log_chunk_record_async
 from app.services.websocket_manager import ws_manager
 from app.utils.audio_generator import ensure_default_sample_audio
 
 logger = logging.getLogger("voxguard.simulator")
 
-# Try importing pydub; fallback to standard wave module if needed
 try:
     from pydub import AudioSegment
     PYDUB_AVAILABLE = True
@@ -42,7 +43,6 @@ def slice_wav_file(file_path: str, chunk_duration_sec: float = 3.0) -> list[dict
             
             for i, start_ms in enumerate(range(0, total_len_ms, chunk_ms)):
                 end_ms = min(start_ms + chunk_ms, total_len_ms)
-                # Ignore very tiny leftover trailing chunks < 0.5s unless it's the only one
                 if (end_ms - start_ms < 500) and len(chunks) > 0:
                     continue
 
@@ -62,7 +62,6 @@ def slice_wav_file(file_path: str, chunk_duration_sec: float = 3.0) -> list[dict
         except Exception as e:
             logger.warning(f"pydub slicing encountered an issue: {e}. Falling back to standard wave module.")
 
-    # Fallback to standard Python wave module (for PCM WAV files)
     with wave.open(file_path, 'rb') as wav_file:
         n_channels = wav_file.getnchannels()
         sampwidth = wav_file.getsampwidth()
@@ -80,7 +79,6 @@ def slice_wav_file(file_path: str, chunk_duration_sec: float = 3.0) -> list[dict
                 
             raw_frames = wav_file.readframes(frames_to_read)
             
-            # Package as valid WAV
             chunk_buffer = io.BytesIO()
             with wave.open(chunk_buffer, 'wb') as chunk_wav:
                 chunk_wav.setnchannels(n_channels)
@@ -103,34 +101,40 @@ async def simulate_call(
     file_path: Optional[str] = None,
     chunk_duration_sec: float = 3.0,
     delay_sec: float = 3.0,
-    scenario: str = "gradual_escalation"
+    scenario: str = "gradual_escalation",
+    session_id: Optional[str] = None
 ) -> AsyncGenerator[RiskUpdate, None]:
     """
-    Day 4 Pipeline:
+    Day 4 / Prompt 4 Pipeline:
     Simulates a live phone call by streaming sliced chunks over time.
     For each chunk:
     1. Slices audio bytes
-    2. Calls ML analysis stub (analyze_chunk_stub)
+    2. Measures exact inference latency around analyze_chunk_dispatch
     3. Feeds score into RollingRiskAggregator
-    4. Yields strict RiskUpdate model
+    4. Logs record into SQLite (safe, non-blocking)
+    5. Yields strict RiskUpdate model
     """
+    current_session_id = session_id or f"session_{uuid.uuid4().hex[:8]}"
+
     if not file_path or not os.path.exists(file_path):
         file_path = ensure_default_sample_audio()
 
     chunks = slice_wav_file(file_path, chunk_duration_sec=chunk_duration_sec)
     total_chunks = len(chunks)
-    logger.info(f"Starting call simulation for '{file_path}': {total_chunks} chunks of {chunk_duration_sec}s each.")
+    logger.info(f"Starting call simulation for '{file_path}' (session={current_session_id}): {total_chunks} chunks of {chunk_duration_sec}s each.")
 
-    # Initialize rolling risk aggregator (5-chunk weighted window)
     aggregator = RollingRiskAggregator(window_size=5, low_threshold=0.4, high_threshold=0.7)
 
     for idx, chunk in enumerate(chunks):
-        # 1. Call ML analysis dispatcher on chunk audio bytes
+        # 1. Measure inference latency around ML dispatch only
+        t0 = time.perf_counter()
         analysis = await analyze_chunk_dispatch(
             audio_bytes=chunk["audio_bytes"],
             step=idx + 1,
             scenario=scenario
         )
+        t1 = time.perf_counter()
+        inference_latency_ms = round((t1 - t0) * 1000.0, 2)
 
         # 2. Feed score into RollingRiskAggregator & create RiskUpdate
         update = aggregator.create_risk_update(
@@ -141,9 +145,26 @@ async def simulate_call(
             timestamp=datetime.now(timezone.utc).isoformat()
         )
 
+        # 3. Log chunk record into SQLite safely
+        try:
+            await log_chunk_record_async(
+                session_id=current_session_id,
+                chunk_id=update.chunk_id,
+                timestamp=update.timestamp,
+                chunk_score=update.chunk_score,
+                rolling_risk_score=update.rolling_risk_score,
+                confidence=update.confidence,
+                flags=update.flags,
+                alert_level=update.alert_level,
+                inference_latency_ms=inference_latency_ms
+            )
+        except Exception as e:
+            logger.error(f"Database log error (continuing stream): {e}")
+
+        # 4. Yield RiskUpdate payload to WebSocket stream caller
         yield update
 
-        # 3. Yield each chunk with real-time delay (unless this is the last chunk)
+        # 5. Delay between chunks to simulate real-time call flow
         if idx < total_chunks - 1:
             await asyncio.sleep(delay_sec)
 
@@ -185,11 +206,11 @@ class SimulationRunner:
                     file_path=file_path,
                     chunk_duration_sec=chunk_duration_sec,
                     delay_sec=delay_sec,
-                    scenario=scenario
+                    scenario=scenario,
+                    session_id=self._session_id
                 ):
                     if not self._is_running:
                         break
-                    # Broadcast to all connected WebSockets
                     await ws_manager.broadcast(risk_update.model_dump())
                     logger.info(
                         f"[{self._session_id}] Streamed {risk_update.chunk_id}: "
