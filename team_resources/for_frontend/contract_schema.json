@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RiskUpdate",
+  "description": "Strict real-time message contract streamed from backend to frontend for every processed audio chunk.",
+  "type": "object",
+  "properties": {
+    "chunk_id": {
+      "type": "string",
+      "description": "Unique identifier for the audio chunk (e.g. 'chunk_001')"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp"
+    },
+    "chunk_score": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Instantaneous impersonation risk score for this chunk (0.0 = safe human, 1.0 = AI clone)"
+    },
+    "rolling_risk_score": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Smoothed 5-chunk weighted rolling risk score"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Model confidence (0.0 to 1.0)"
+    },
+    "flags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Detected synthetic indicators (e.g. ['synthetic_artifact', 'prosody_flatness', 'spectral_discontinuity'])"
+    },
+    "alert_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Categorical alert level: low (<0.40), medium (0.40-0.70), high (>0.70)"
+    }
+  },
+  "required": [
+    "chunk_id",
+    "timestamp",
+    "chunk_score",
+    "rolling_risk_score",
+    "confidence",
+    "flags",
+    "alert_level"
+  ]
+}
