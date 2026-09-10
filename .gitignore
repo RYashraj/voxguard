@@ -17,3 +17,5 @@ node_modules/
 
 # Internal Docs
 *.pdf
+
+tsconfig.tsbuildinfo
