@@ -3,7 +3,7 @@
 **Team Crackjack — SIH26104 (AI-Powered Real-Time Voice Cloning Detection)**
 **Backend Lead:** Shreyas
 
-This repository contains the real-time FastAPI backend service that ingests audio chunks, processes them through ML detection models, computes smoothed rolling risk scores, and broadcasts live risk updates via WebSockets.
+This repository contains the real-time FastAPI backend service that ingests audio chunks, processes them through ML detection models (`Spectra-AASIST3`), computes smoothed rolling risk scores, and broadcasts live risk updates via WebSockets.
 
 ---
 
@@ -13,10 +13,10 @@ This repository contains the real-time FastAPI backend service that ingests audi
 Audio Input (Live Mic / Sliced WAV Chunks)
                │
                ▼
-   Audio Slicer (2–4s Chunks)
+   Audio Slicer (3s Chunks)
                │
                ▼
-      ML Analysis Engine (analyze_chunk_stub / AASIST)
+      ML Analysis Engine (app.ml.analyzer / Spectra-AASIST3)
                │
                ▼
    RollingRiskAggregator (5-Chunk Weighted Window)
@@ -30,6 +30,30 @@ Audio Input (Live Mic / Sliced WAV Chunks)
 
 ---
 
+## One-Time Model Setup
+
+Run this command locally to pre-cache the **Spectra-AASIST3** model weights from Hugging Face:
+
+```bash
+python -c "from transformers import AutoModel; AutoModel.from_pretrained('lab260/Spectra-AASIST3', trust_remote_code=True)"
+```
+
+*Note: Model weights must never be committed to Git repositories.*
+
+---
+
+## Configuration: `VOXGUARD_ML_MODE`
+
+The backend supports switching between the real ML model and simulation stub via environment variable:
+
+- **`VOXGUARD_ML_MODE=real`** *(Default)*: Runs real synchronous Spectra-AASIST3 model inference safely off the main event loop thread via `asyncio.to_thread`.
+- **`VOXGUARD_ML_MODE=stub`**: Runs simulated score scenario streams for local UI testing without requiring model weights.
+
+> [!WARNING]
+> Only `"real"` or `"stub"` are valid values. Any invalid value will immediately raise a `ValueError` configuration error.
+
+---
+
 ## Quick Start
 
 ### 1. Install Dependencies
@@ -40,25 +64,13 @@ pip install -r requirements.txt
 
 ### 2. Run the Development Server
 ```bash
-# Option A: via uvicorn
+# Default mode (Real ML model)
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-# Option B: directly via python
-python main.py
+# Stub mode (Development / Testing)
+VOXGUARD_ML_MODE=stub uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
-The server will start at `http://localhost:8000` (Interactive Swagger docs available at `http://localhost:8000/docs`).
-
----
-
-## Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Health check endpoint (Returns `{"status": "ok"}`) |
-| `GET` | `/contract` | Returns an example JSON of the strict contract |
-| `WS` | `/ws/session` or `/ws/session/{session_id}` | WebSocket endpoint for live real-time risk streaming |
-| `POST` | `/start-simulation` | Starts the Call Simulator (slices audio, runs ML stub, aggregates rolling score, and streams over WebSocket) |
-| `POST` | `/stop-simulation` | Stops the running call simulation |
+Interactive Swagger API documentation is available at `http://localhost:8000/docs`.
 
 ---
 
@@ -80,17 +92,17 @@ Every message streamed over `/ws/session` strictly follows this agreed JSON form
 
 ### Thresholds & Alert Levels:
 - `low`: `rolling_risk_score < 0.40` (Safe call — Green)
-- `medium`: `0.40 <= rolling_risk_score <= 0.70` (Elevated risk, monitor closely — Yellow)
+- `medium`: `0.40 <= rolling_risk_score <= 0.70` (Elevated risk — Yellow)
 - `high`: `rolling_risk_score > 0.70` (High risk AI clone / fraud — Red)
 
 ---
 
-## Running Verification & Tests
+## Running Automated Verification & Tests
 
 ```bash
-# Run full automated test suite (18 tests passing)
-python -m pytest backend/tests -v
+# Run full automated backend test suite (100% offline)
+python -m unittest discover -s tests -p "test_*.py"
 
-# Run live Day 3 & Day 4 end-to-end verification
-python backend/scripts/verify_day3_day4.py
+# Or using pytest
+python -m pytest tests -v
 ```

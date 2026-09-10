@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from app.models.schemas import RiskUpdate
 from app.core.aggregator import RollingRiskAggregator
-from app.ml.stub import analyze_chunk_stub
+from app.ml.analyzer import analyze_chunk_dispatch
 from app.services.websocket_manager import ws_manager
 from app.utils.audio_generator import ensure_default_sample_audio
 
@@ -125,8 +125,8 @@ async def simulate_call(
     aggregator = RollingRiskAggregator(window_size=5, low_threshold=0.4, high_threshold=0.7)
 
     for idx, chunk in enumerate(chunks):
-        # 1. Call ML stub analysis on chunk audio bytes
-        analysis = analyze_chunk_stub(
+        # 1. Call ML analysis dispatcher on chunk audio bytes
+        analysis = await analyze_chunk_dispatch(
             audio_bytes=chunk["audio_bytes"],
             step=idx + 1,
             scenario=scenario
