@@ -40,8 +40,11 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Could not generate default audio: {e}")
 
     try:
-        await init_db_async()
-        logger.info("SQLite session database ready.")
+        db_ok = await init_db_async()
+        if db_ok:
+            logger.info("SQLite session database ready.")
+        else:
+            logger.warning("SQLite DB startup initialization failed. Session history logging may be unavailable.")
     except Exception as e:
         logger.error(f"SQLite DB startup initialization error: {e}")
 

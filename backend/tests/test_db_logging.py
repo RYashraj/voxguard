@@ -2,7 +2,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch, MagicMock
 
 from fastapi.testclient import TestClient
 
@@ -96,7 +96,6 @@ class TestDBLogging(unittest.TestCase):
             log_chunk_record(sid, "chunk_001", "2026-09-10T15:00:00Z", 0.12, 0.12, 0.95, ["test_flag"], "low", 3.5, db_path=test_db)
 
             with patch.dict(os.environ, {"VOXGUARD_DB_PATH": test_db}):
-                # Test 200 OK
                 resp_200 = client.get(f"/sessions/{sid}/history")
                 self.assertEqual(resp_200.status_code, 200)
                 data = resp_200.json()
@@ -104,14 +103,12 @@ class TestDBLogging(unittest.TestCase):
                 self.assertEqual(data["total_chunks"], 1)
                 self.assertEqual(data["history"][0]["chunk_id"], "chunk_001")
 
-                # Test 404 Not Found
                 resp_404 = client.get("/sessions/unknown_nonexistent_session/history")
                 self.assertEqual(resp_404.status_code, 404)
                 self.assertIn("detail", resp_404.json())
 
     def test_db_write_failure_does_not_stop_streaming(self):
         """
-        Requirement 5 & Constraint 7:
         Simulate DB write failure (mock log_chunk_record returning False or raising Exception).
         Verify simulator still emits every expected RiskUpdate item without crashing.
         """
@@ -119,7 +116,7 @@ class TestDBLogging(unittest.TestCase):
             wav_path = os.path.join(tmp_dir, "test_call.wav")
             generate_sample_wav(wav_path, duration_sec=6.0, frequency=300.0)
 
-            # Test 1: Mock returning False
+            # Mock returning False
             with patch("app.services.simulator.log_chunk_record_async", return_value=False):
                 import asyncio
                 async def _run():
@@ -131,7 +128,7 @@ class TestDBLogging(unittest.TestCase):
                 updates = asyncio.run(_run())
                 self.assertEqual(len(updates), 2)
 
-            # Test 2: Mock raising controlled SQLite Exception
+            # Mock raising controlled SQLite Exception
             with patch("app.services.simulator.log_chunk_record_async", side_effect=sqlite3.OperationalError("Simulated DB Disk Full")):
                 import asyncio
                 async def _run_err():
@@ -142,6 +139,21 @@ class TestDBLogging(unittest.TestCase):
 
                 updates_err = asyncio.run(_run_err())
                 self.assertEqual(len(updates_err), 2)
+
+    def test_db_init_failure_in_lifespan_does_not_block_startup(self):
+        """Verify init_db_async returning False during lifespan startup logs warning and allows FastAPI startup."""
+        with patch("app.main.init_db_async", new=AsyncMock(return_value=False)):
+            with patch("app.main.logger") as mock_logger:
+                with TestClient(app) as test_client:
+                    resp = test_client.get("/health")
+                    self.assertEqual(resp.status_code, 200)
+
+                    # Verify success message was NOT logged
+                    logged_info_messages = [call.args[0] for call in mock_logger.info.call_args_list if call.args]
+                    self.assertNotIn("SQLite session database ready.", logged_info_messages)
+
+                    # Verify warning was logged
+                    mock_logger.warning.assert_called()
 
 
 if __name__ == "__main__":
