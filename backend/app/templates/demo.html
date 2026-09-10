@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoxGuard — Live Real-Time Risk Stream Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #07090E;
+      --card-bg: rgba(18, 24, 38, 0.85);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --safe-color: #10B981;
+      --warning-color: #F59E0B;
+      --danger-color: #EF4444;
+      --text-main: #F3F4F6;
+      --text-muted: #9CA3AF;
+      --cyan-accent: #06B6D4;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Outfit', sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(6, 182, 212, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(239, 68, 68, 0.08) 0%, transparent 40%);
+    }
+
+    /* Header */
+    header {
+      padding: 16px 32px;
+      border-bottom: 1px solid var(--card-border);
+      background: rgba(11, 15, 25, 0.9);
+      backdrop-filter: blur(12px);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo-group {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .logo-badge {
+      background: linear-gradient(135deg, #06B6D4, #3B82F6);
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      color: white;
+      box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+    }
+    .title-group h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .title-group p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .ws-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      font-size: 13px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #6B7280;
+    }
+    .status-dot.connected {
+      background: var(--safe-color);
+      box-shadow: 0 0 10px var(--safe-color);
+      animation: pulse 2s infinite;
+    }
+
+    /* Main Layout */
+    .container {
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      flex: 1;
+    }
+
+    /* Controls Bar */
+    .controls-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      backdrop-filter: blur(8px);
+    }
+    .controls-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .control-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .control-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    select, input {
+      background: #0D131F;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 14px;
+      outline: none;
+    }
+    select:focus, input:focus {
+      border-color: var(--cyan-accent);
+    }
+    .btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #06B6D4, #2563EB);
+      color: white;
+      box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
+    }
+    .btn-primary:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #F87171;
+    }
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.25);
+    }
+
+    /* Dashboard Grid */
+    .grid {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 1024px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+      overflow: hidden;
+      backdrop-filter: blur(8px);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    /* Risk Gauge */
+    .gauge-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 0;
+    }
+    .gauge-svg {
+      width: 260px;
+      height: 140px;
+    }
+    .gauge-bg {
+      fill: none;
+      stroke: #1E293B;
+      stroke-width: 18;
+      stroke-linecap: round;
+    }
+    .gauge-value-arc {
+      fill: none;
+      stroke-width: 18;
+      stroke-linecap: round;
+      stroke-dasharray: 377;
+      stroke-dashoffset: 377;
+      transition: stroke-dashoffset 0.8s ease, stroke 0.5s ease;
+    }
+    .gauge-center-text {
+      text-align: center;
+      margin-top: -30px;
+    }
+    .gauge-score {
+      font-size: 42px;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: -1px;
+    }
+    .gauge-subtext {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* Alert Banner */
+    .alert-banner {
+      padding: 14px 18px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.4s ease;
+      border: 1px solid transparent;
+    }
+    .alert-banner.low {
+      background: rgba(16, 185, 129, 0.12);
+      border-color: rgba(16, 185, 129, 0.3);
+      color: #34D399;
+    }
+    .alert-banner.medium {
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.3);
+      color: #FBBF24;
+    }
+    .alert-banner.high {
+      background: rgba(239, 68, 68, 0.18);
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #F87171;
+      animation: alertPulse 1.2s infinite alternate;
+    }
+
+    /* Flags Area */
+    .flags-wrapper {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 32px;
+    }
+    .flag-chip {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #FCA5A5;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 4px 10px;
+      border-radius: 6px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    /* Transaction Approval Gate Card */
+    .gate-card {
+      background: linear-gradient(180deg, rgba(24, 30, 48, 0.9) 0%, rgba(15, 20, 32, 0.95) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .gate-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+    .btn-approve {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.3s ease;
+      background: var(--safe-color);
+      color: #064E3B;
+    }
+    .btn-approve.locked {
+      background: #374151;
+      color: #9CA3AF;
+      cursor: not-allowed;
+      box-shadow: none;
+      position: relative;
+    }
+    .btn-unlock {
+      background: linear-gradient(135deg, #F59E0B, #D97706);
+      color: black;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+
+    /* Right Column: Waveform & Timeline */
+    .right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Waveform Canvas */
+    canvas#waveformCanvas {
+      width: 100%;
+      height: 90px;
+      background: #090D15;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Stream Feed / Timeline */
+    .stream-table-wrapper {
+      max-height: 320px;
+      overflow-y: auto;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    table.stream-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    table.stream-table th {
+      background: #0E1422;
+      padding: 10px 12px;
+      text-align: left;
+      color: var(--text-muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--card-border);
+      position: sticky;
+      top: 0;
+    }
+    table.stream-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      color: var(--text-main);
+    }
+    table.stream-table tr:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge-low { background: rgba(16, 185, 129, 0.2); color: #34D399; }
+    .badge-medium { background: rgba(245, 158, 11, 0.2); color: #FBBF24; }
+    .badge-high { background: rgba(239, 68, 68, 0.2); color: #F87171; }
+
+    /* JSON Inspector */
+    .json-card pre {
+      background: #080C14;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #A5F3FC;
+      overflow-x: auto;
+      max-height: 140px;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.15); opacity: 0.8; }
+    }
+    @keyframes alertPulse {
+      from { box-shadow: 0 0 15px rgba(239, 68, 68, 0.2); }
+      to { box-shadow: 0 0 25px rgba(239, 68, 68, 0.5); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="logo-group">
+      <div class="logo-badge">V</div>
+      <div class="title-group">
+        <h1>VoxGuard Live Real-Time Stream</h1>
+        <p>SIH26104 — AI-Powered Voice Cloning & Impersonation Detection (Team Crackjack)</p>
+      </div>
+    </div>
+    <div class="ws-status">
+      <div class="status-dot" id="wsDot"></div>
+      <span id="wsText">Connecting...</span>
+    </div>
+  </header>
+
+  <!-- Container -->
+  <div class="container">
+    
+    <!-- Controls Panel -->
+    <div class="controls-panel">
+      <div class="controls-left">
+        <div class="control-item">
+          <label class="control-label">Demo Scenario</label>
+          <select id="scenarioSelect">
+            <option value="gradual_escalation">Evaluation Day Script (Green -> Yellow -> Red)</option>
+            <option value="clean">Clean Human Call (Safe)</option>
+            <option value="suspicious">Immediate Deepfake Attack (High Risk)</option>
+          </select>
+        </div>
+        <div class="control-item">
+          <label class="control-label">Chunk Pace</label>
+          <select id="paceSelect">
+            <option value="2.0">Real-Time (2.0s delay)</option>
+            <option value="1.0">Fast Demo (1.0s delay)</option>
+            <option value="0.5">Rapid Test (0.5s delay)</option>
+          </select>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button class="btn btn-primary" id="btnStartSim" onclick="startSimulation()">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          Start Live Call
+        </button>
+        <button class="btn btn-danger" id="btnStopSim" onclick="stopSimulation()">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+          Stop
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid">
+      
+      <!-- Left Column: Gauge, Alert, Gate -->
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+        
+        <!-- Risk Gauge Card -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Rolling Risk Engine</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;" id="chunksCount">0 chunks</span>
+          </div>
+          
+          <div class="gauge-container">
+            <svg class="gauge-svg" viewBox="0 0 260 140">
+              <!-- Background Arc -->
+              <path class="gauge-bg" d="M 30 130 A 100 100 0 0 1 230 130" />
+              <!-- Animated Value Arc -->
+              <path class="gauge-value-arc" id="gaugeArc" d="M 30 130 A 100 100 0 0 1 230 130" stroke="#10B981" />
+            </svg>
+            <div class="gauge-center-text">
+              <div class="gauge-score" id="riskScoreValue">0.00</div>
+              <div class="gauge-subtext">Smoothed 5-Chunk Rolling Score</div>
+            </div>
+          </div>
+
+          <!-- Alert Banner -->
+          <div class="alert-banner low" id="alertBanner">
+            <span id="alertText">LOW RISK — Call looks safe</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;" id="confValue">Conf: 95%</span>
+          </div>
+
+          <!-- Synthetic Flags -->
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; font-weight: 600;">Detected Synthetic Artifacts</div>
+            <div class="flags-wrapper" id="flagsContainer">
+              <span style="color: #6B7280; font-size: 12px;">None (Natural Speech Dynamics)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Approval Gate Card -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Transaction Approval Gate</span>
+            <span id="gateStatusBadge" class="badge badge-low">Unlocked</span>
+          </div>
+          <div class="gate-card">
+            <div class="gate-row">
+              <span style="color: var(--text-muted);">Action:</span>
+              <strong>Transfer Authorization (₹50,000)</strong>
+            </div>
+            <div class="gate-row">
+              <span style="color: var(--text-muted);">Caller ID:</span>
+              <span>Regional Branch Mgr #4012</span>
+            </div>
+            <div class="gate-row">
+              <span style="color: var(--text-muted);">Security Policy:</span>
+              <span style="color: #F87171;">Auto-locks on High Risk (&gt;0.70)</span>
+            </div>
+            
+            <button class="btn-approve" id="approveBtn" onclick="onApproveClick()">
+              ✓ Approve Transaction
+            </button>
+            
+            <button class="btn btn-unlock" id="unlockBtn" style="display: none;" onclick="onVerifyCallbackClick()">
+              🔒 Verify via Callback (Unlock)
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Waveform, Live Stream Feed, Contract Inspector -->
+      <div class="right-col">
+        
+        <!-- Live Audio Waveform Card -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Live Audio Spectral Stream</span>
+            <span style="font-size: 12px; color: var(--cyan-accent);" id="streamStatus">Idle</span>
+          </div>
+          <canvas id="waveformCanvas"></canvas>
+        </div>
+
+        <!-- Live Chunk Feed Table -->
+        <div class="card" style="flex: 1;">
+          <div class="card-header">
+            <span class="card-title">Real-Time Chunk Feed</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">Contract Spec v1.0</span>
+          </div>
+          <div class="stream-table-wrapper">
+            <table class="stream-table">
+              <thead>
+                <tr>
+                  <th>Chunk ID</th>
+                  <th>Timestamp</th>
+                  <th>Instant Score</th>
+                  <th>Rolling Score</th>
+                  <th>Alert Level</th>
+                  <th>Flags</th>
+                </tr>
+              </thead>
+              <tbody id="streamTableBody">
+                <tr>
+                  <td colspan="6" style="text-align: center; color: #6B7280; padding: 24px;">Waiting for call stream to start...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Contract JSON Inspector -->
+        <div class="card json-card">
+          <div class="card-header">
+            <span class="card-title">Live WebSocket JSON Payload</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">/ws/session</span>
+          </div>
+          <pre id="jsonPayload">{ "waiting_for_stream": true }</pre>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    let ws = null;
+    let totalChunks = 0;
+    let isLocked = false;
+    let animationId = null;
+
+    // WebSocket Connection
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/session`;
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        document.getElementById('wsDot').className = 'status-dot connected';
+        document.getElementById('wsText').innerText = 'LIVE CONNECTED';
+        document.getElementById('wsText').style.color = '#34D399';
+      };
+
+      ws.onclose = () => {
+        document.getElementById('wsDot').className = 'status-dot';
+        document.getElementById('wsText').innerText = 'DISCONNECTED';
+        document.getElementById('wsText').style.color = '#9CA3AF';
+        setTimeout(connectWebSocket, 2000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === 'connected') {
+            console.log("Session connected:", data);
+            return;
+          }
+          handleRiskUpdate(data);
+        } catch (e) {
+          console.error("Error parsing message:", e);
+        }
+      };
+    }
+
+    // Handle RiskUpdate Payload
+    function handleRiskUpdate(data) {
+      totalChunks++;
+      document.getElementById('chunksCount').innerText = `${totalChunks} chunks processed`;
+      document.getElementById('streamStatus').innerText = `Active [${data.chunk_id}]`;
+
+      // 1. Update Gauge & Score
+      const score = data.rolling_risk_score;
+      document.getElementById('riskScoreValue').innerText = score.toFixed(2);
+      document.getElementById('confValue').innerText = `Conf: ${(data.confidence * 100).toFixed(0)}%`;
+
+      // Arc length is ~314 (semi-circle perimeter for r=100)
+      const maxOffset = 314;
+      const offset = maxOffset - (score * maxOffset);
+      const arc = document.getElementById('gaugeArc');
+      arc.style.strokeDashoffset = offset;
+
+      // Color transitions
+      let color = '#10B981';
+      let bannerClass = 'alert-banner low';
+      let bannerText = 'LOW RISK — Call looks safe';
+
+      if (score >= 0.70 || data.alert_level === 'high') {
+        color = '#EF4444';
+        bannerClass = 'alert-banner high';
+        bannerText = 'CRITICAL — Possible AI Clone / Fraud Detected!';
+      } else if (score >= 0.40 || data.alert_level === 'medium') {
+        color = '#F59E0B';
+        bannerClass = 'alert-banner medium';
+        bannerText = 'ELEVATED RISK — Monitor closely for anomalies';
+      }
+
+      arc.setAttribute('stroke', color);
+      document.getElementById('riskScoreValue').style.color = color;
+      
+      const banner = document.getElementById('alertBanner');
+      banner.className = bannerClass;
+      document.getElementById('alertText').innerText = bannerText;
+
+      // 2. Handle Approval Gate Auto-Lock on High Risk (Evaluation Step 4)
+      const approveBtn = document.getElementById('approveBtn');
+      const unlockBtn = document.getElementById('unlockBtn');
+      const gateBadge = document.getElementById('gateStatusBadge');
+
+      if (data.alert_level === 'high' && !isLocked) {
+        isLocked = true;
+        approveBtn.className = 'btn-approve locked';
+        approveBtn.innerText = '⛔ Action Auto-Locked (High Risk Clone)';
+        gateBadge.className = 'badge badge-high';
+        gateBadge.innerText = 'LOCKED (Fraud Risk)';
+        unlockBtn.style.display = 'block';
+      }
+
+      // 3. Flags Chips
+      const flagsContainer = document.getElementById('flagsContainer');
+      if (data.flags && data.flags.length > 0) {
+        flagsContainer.innerHTML = data.flags.map(f => `<span class="flag-chip">${f}</span>`).join('');
+      } else {
+        flagsContainer.innerHTML = '<span style="color: #6B7280; font-size: 12px;">None (Natural Speech Dynamics)</span>';
+      }
+
+      // 4. Update JSON Inspector
+      document.getElementById('jsonPayload').innerText = JSON.stringify(data, null, 2);
+
+      // 5. Add to Chunk Feed Table
+      const tableBody = document.getElementById('streamTableBody');
+      if (totalChunks === 1) {
+        tableBody.innerHTML = '';
+      }
+      const row = document.createElement('tr');
+      const badgeClass = `badge badge-${data.alert_level}`;
+      const flagsStr = (data.flags && data.flags.length > 0) ? data.flags.join(', ') : '—';
+      const timeStr = new Date(data.timestamp).toLocaleTimeString();
+
+      row.innerHTML = `
+        <td style="font-weight: 700; color: #38BDF8;">${data.chunk_id}</td>
+        <td style="color: var(--text-muted);">${timeStr}</td>
+        <td>${data.chunk_score.toFixed(2)}</td>
+        <td style="font-weight: 700; color: ${color};">${data.rolling_risk_score.toFixed(2)}</td>
+        <td><span class="${badgeClass}">${data.alert_level}</span></td>
+        <td style="color: #FDA4AF;">${flagsStr}</td>
+      `;
+      tableBody.insertBefore(row, tableBody.firstChild);
+    }
+
+    // Trigger Simulation via POST /start-simulation
+    async function startSimulation() {
+      const scenario = document.getElementById('scenarioSelect').value;
+      const delay = parseFloat(document.getElementById('paceSelect').value);
+
+      // Reset UI state
+      totalChunks = 0;
+      isLocked = false;
+      document.getElementById('approveBtn').className = 'btn-approve';
+      document.getElementById('approveBtn').innerText = '✓ Approve Transaction';
+      document.getElementById('unlockBtn').style.display = 'none';
+      document.getElementById('gateStatusBadge').className = 'badge badge-low';
+      document.getElementById('gateStatusBadge').innerText = 'Unlocked';
+      document.getElementById('streamTableBody').innerHTML = '';
+
+      try {
+        const res = await fetch('/start-simulation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chunk_duration_sec: 3.0,
+            delay_sec: delay,
+            scenario: scenario
+          })
+        });
+        const json = await res.json();
+        console.log("Simulation started:", json);
+      } catch (e) {
+        alert("Error starting simulation: " + e.message);
+      }
+    }
+
+    async function stopSimulation() {
+      try {
+        await fetch('/stop-simulation', { method: 'POST' });
+        document.getElementById('streamStatus').innerText = 'Stopped';
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function onApproveClick() {
+      if (isLocked) {
+        alert("SECURITY LOCKOUT: Transaction cannot be approved while voice risk is HIGH. Please verify via callback.");
+      } else {
+        alert("Transaction Approved! Voice signature verified within safe boundaries.");
+      }
+    }
+
+    function onVerifyCallbackClick() {
+      // Step 6: Callback Verification
+      isLocked = false;
+      const approveBtn = document.getElementById('approveBtn');
+      const unlockBtn = document.getElementById('unlockBtn');
+      const gateBadge = document.getElementById('gateStatusBadge');
+
+      approveBtn.className = 'btn-approve';
+      approveBtn.innerText = '✓ Approve Transaction (Callback Verified)';
+      gateBadge.className = 'badge badge-medium';
+      gateBadge.innerText = 'Verified via Callback';
+      unlockBtn.style.display = 'none';
+      alert("Callback verification confirmed. Action unlocked.");
+    }
+
+    // Live Audio Waveform Canvas Animation
+    const canvas = document.getElementById('waveformCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+      canvas.width = canvas.parentElement.clientWidth - 48;
+      canvas.height = 90;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let wavePhase = 0;
+    function drawWaveform() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const centerY = canvas.height / 2;
+      const bars = 64;
+      const barWidth = (canvas.width / bars) - 2;
+
+      for (let i = 0; i < bars; i++) {
+        const t = (i / bars) * Math.PI * 4 + wavePhase;
+        const score = parseFloat(document.getElementById('riskScoreValue').innerText) || 0.1;
+        const amplitude = (Math.sin(t) * 0.4 + Math.cos(t * 1.5) * 0.3 + 0.4) * (20 + score * 30);
+        
+        // Gradient
+        let barColor = '#06B6D4';
+        if (score > 0.7) barColor = '#EF4444';
+        else if (score > 0.4) barColor = '#F59E0B';
+
+        ctx.fillStyle = barColor;
+        ctx.fillRect(i * (barWidth + 2), centerY - amplitude / 2, barWidth, Math.max(3, amplitude));
+      }
+      wavePhase += 0.05;
+      requestAnimationFrame(drawWaveform);
+    }
+    drawWaveform();
+
+    // Initialize WebSocket
+    connectWebSocket();
+  </script>
+</body>
+</html>
