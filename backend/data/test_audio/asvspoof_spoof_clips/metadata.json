@@ -1,0 +1,50 @@
+[
+  {
+    "utterance_id": "LA_E_2834763",
+    "system_id": "Unknown",
+    "label": "spoof",
+    "sample_rate": 16000,
+    "duration_sec": 1.43,
+    "file_name": "LA_E_2834763.wav"
+  },
+  {
+    "utterance_id": "LA_E_8877452",
+    "system_id": "Unknown",
+    "label": "spoof",
+    "sample_rate": 16000,
+    "duration_sec": 3.98,
+    "file_name": "LA_E_8877452.wav"
+  },
+  {
+    "utterance_id": "LA_E_6828287",
+    "system_id": "Unknown",
+    "label": "spoof",
+    "sample_rate": 16000,
+    "duration_sec": 1.56,
+    "file_name": "LA_E_6828287.wav"
+  },
+  {
+    "utterance_id": "LA_E_6977360",
+    "system_id": "Unknown",
+    "label": "spoof",
+    "sample_rate": 16000,
+    "duration_sec": 1.96,
+    "file_name": "LA_E_6977360.wav"
+  },
+  {
+    "utterance_id": "LA_E_5932896",
+    "system_id": "Unknown",
+    "label": "spoof",
+    "sample_rate": 16000,
+    "duration_sec": 5.8,
+    "file_name": "LA_E_5932896.wav"
+  },
+  {
+    "utterance_id": "LA_E_6163791",
+    "system_id": "Unknown",
+    "label": "spoof",
+    "sample_rate": 16000,
+    "duration_sec": 1.9,
+    "file_name": "LA_E_6163791.wav"
+  }
+]
