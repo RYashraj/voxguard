@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #EBE6DA;
+  --surface: #F5F1E6;
+  --ink: #211D18;
+  --muted: #6E6656;
+  --line: #C9C0AC;
+  --risk-low: #3F6B4A;
+  --risk-medium: #A8721E;
+  --risk-high: #8C2F39;
+  --grid-line: rgba(33, 29, 24, 0.03);
+}
+
+.dark {
+  /* Warm ink-well dark, not navy — stays in the same family as light mode. */
+  --bg: #1C1815;
+  --surface: #262019;
+  --ink: #EDE8DE;
+  --muted: #A69B87;
+  --line: #3D362C;
+  --risk-low: #5FA06D;
+  --risk-medium: #D0983A;
+  --risk-high: #D0616D;
+  --grid-line: rgba(237, 232, 222, 0.04);
+}
+
+body {
+  color: var(--ink);
+  background: var(--bg);
+  font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+/* The one deliberate motion moment in this UI: the alert banner arriving
+   when risk actually changes state. Nothing else animates on hover. */
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-banner-in {
+  animation: banner-in 200ms ease-out;
+}
