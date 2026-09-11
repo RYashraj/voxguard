@@ -9,9 +9,9 @@ import { useRiskSocket } from "@/hooks/useRiskSocket";
 // Day 5: pointed at Shreyas's real backend (falls back to the Day 3 mock
 // server if the env vars aren't set, so local dev without the backend
 // running still works).
-const WS_URL = process.env.NEXT_PUBLIC_RISK_WS_URL ?? "ws://localhost:8080";
+const WS_URL = process.env.NEXT_PUBLIC_RISK_WS_URL ?? "ws://127.0.0.1:8000/ws/session";
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 const STATUS_LABEL: Record<string, string> = {
   connecting: "connecting…",
@@ -33,8 +33,6 @@ export default function Home() {
       const res = await fetch(`${API_BASE_URL}/start-simulation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Empty body — backend defaults to the demo WAV + gradual_escalation
-        // scenario when no fields are given.
         body: JSON.stringify({}),
       });
       if (!res.ok) throw new Error(`start-simulation failed: ${res.status}`);
@@ -42,6 +40,15 @@ export default function Home() {
     } catch (err) {
       console.error("Failed to start simulation", err);
       setSimStatus("error");
+    }
+  }
+
+  async function handleStopCall() {
+    try {
+      await fetch(`${API_BASE_URL}/stop-simulation`, { method: "POST" });
+      setSimStatus("idle");
+    } catch (err) {
+      console.error("Failed to stop simulation", err);
     }
   }
 
@@ -74,16 +81,26 @@ export default function Home() {
       </header>
 
       {status === "open" && (
-        <button
-          onClick={handleStartCall}
-          disabled={simStatus === "starting" || simStatus === "running"}
-          className="rounded-xl border border-border bg-surface px-4 py-2 font-mono text-xs text-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {simStatus === "idle" && "Start call"}
-          {simStatus === "starting" && "Starting…"}
-          {simStatus === "running" && "Call running"}
-          {simStatus === "error" && "Failed to start — retry"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleStartCall}
+            disabled={simStatus === "starting" || simStatus === "running"}
+            className="flex-1 rounded-xl border border-border bg-surface px-4 py-2 font-mono text-xs text-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {simStatus === "idle" && "Start call"}
+            {simStatus === "starting" && "Starting…"}
+            {simStatus === "running" && "Call running"}
+            {simStatus === "error" && "Failed to start — retry"}
+          </button>
+          {simStatus === "running" && (
+            <button
+              onClick={handleStopCall}
+              className="rounded-xl border border-border bg-surface px-4 py-2 font-mono text-xs text-risk-high transition-opacity hover:opacity-90"
+            >
+              Stop call
+            </button>
+          )}
+        </div>
       )}
 
       <LiveWaveform active={hasReceivedData} />

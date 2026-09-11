@@ -47,14 +47,44 @@ For the hackathon build, the "live call" is either a mic-captured live conversat
 - **ML:** PyTorch + HuggingFace Transformers (wav2vec2/AASIST-based spoof detection), librosa (prosody features), pydub (audio chunking)
 - **Frontend:** Next.js + Tailwind, WebSocket client, Recharts for live risk visualization
 
-## Setup
-```bash
-# backend
-cd backend && pip install -r requirements.txt && uvicorn main:app --reload
+## How to Run (Two-Terminal Local Setup)
 
-# frontend
-cd frontend && npm install && npm run dev
+### Terminal 1: Backend API & ML Engine
+```powershell
+cd D:\VoxGuard\voxguard-github-integration\backend
+
+# 1. Activate Python 3.11 virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# 2. Select ML mode ('real' for Spectra-AASIST3 model or 'stub' for UI testing)
+$env:VOXGUARD_ML_MODE = "real"
+
+# 3. Start Backend Uvicorn Server (http://127.0.0.1:8000)
+uvicorn app.main:app --reload
 ```
+
+### Terminal 2: Next.js Frontend Dashboard
+```powershell
+cd D:\VoxGuard\voxguard-github-integration
+
+# 1. Install dependencies (if not already installed)
+npm install
+
+# 2. Start Next.js Development Server (http://localhost:3000)
+npm run dev
+```
+
+---
+
+## Integration Test Checklist
+
+- [x] **Backend Health Check**: `GET http://127.0.0.1:8000/health` returns `{"status": "ok"}`.
+- [x] **WebSocket Handshake**: Frontend connects to `ws://127.0.0.1:8000/ws/session` and status shows `live`.
+- [x] **Simulation Control**: Clicking **Start call** triggers `POST http://127.0.0.1:8000/start-simulation`.
+- [x] **Contract Conformance**: Streamed RiskUpdate objects contain all 7 contract fields (`chunk_id`, `timestamp`, `chunk_score`, `rolling_risk_score`, `confidence`, `flags`, `alert_level`).
+- [x] **UI Rendering**: Risk gauge, alert banner, waveform, and chunk log update dynamically.
+- [x] **High Alert Trigger**: Deepfake audio (e.g. ASVspoof 2019 benchmark clip) triggers **`high`** alert and `"synthetic_artifact"` flag.
+- [x] **Session Persistence**: Call history is saved to SQLite DB and retrieved via `GET /sessions/{session_id}/history`.
 
 ## Data contract
 Every risk update flowing from backend to frontend follows this shape:
