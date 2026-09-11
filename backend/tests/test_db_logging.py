@@ -32,7 +32,7 @@ class TestDBLogging(unittest.TestCase):
 
     def test_simulated_session_persists_records(self):
         """Verify a simulated session produces persisted records sharing one session_id and latency."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             test_db = os.path.join(tmp_dir, "test_voxguard.db")
             wav_path = os.path.join(tmp_dir, "test_call.wav")
             generate_sample_wav(wav_path, duration_sec=6.0, frequency=300.0)
@@ -71,7 +71,7 @@ class TestDBLogging(unittest.TestCase):
 
     def test_get_session_history_deterministic_order(self):
         """Verify get_session_history orders records deterministically by timestamp ASC, id ASC."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             test_db = os.path.join(tmp_dir, "test_voxguard.db")
             init_db(test_db)
             sid = "session_order_test"
@@ -88,7 +88,7 @@ class TestDBLogging(unittest.TestCase):
 
     def test_session_history_endpoint_200_and_404(self):
         """Verify GET /sessions/{session_id}/history returns 200 for known session and 404 for unknown session."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             test_db = os.path.join(tmp_dir, "test_voxguard.db")
             init_db(test_db)
             sid = "session_api_test"
@@ -112,7 +112,7 @@ class TestDBLogging(unittest.TestCase):
         Simulate DB write failure (mock log_chunk_record returning False or raising Exception).
         Verify simulator still emits every expected RiskUpdate item without crashing.
         """
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             wav_path = os.path.join(tmp_dir, "test_call.wav")
             generate_sample_wav(wav_path, duration_sec=6.0, frequency=300.0)
 

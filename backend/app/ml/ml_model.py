@@ -132,9 +132,25 @@ class SpectraAASISTDetector:
             from transformers import AutoModel
 
             logger.info("Loading Spectra-AASIST3 model...")
-            self.model = AutoModel.from_pretrained(
-                self.model_name, trust_remote_code=True
-            )
+            try:
+                self.model = AutoModel.from_pretrained(
+                    self.model_name, trust_remote_code=True
+                )
+            except Exception as auto_err:
+                logger.info("AutoModel.from_pretrained failed (%s), loading SpectraAASIST3 via PyTorchModelHubMixin...", auto_err)
+                import sys
+                import importlib.util
+                from huggingface_hub import hf_hub_download
+
+                model_py_path = hf_hub_download(repo_id=self.model_name, filename="model.py")
+                spec = importlib.util.spec_from_file_location("spectra_model", model_py_path)
+                spectra_module = importlib.util.module_from_spec(spec)
+                sys.modules["spectra_model"] = spectra_module
+                spec.loader.exec_module(spectra_module)
+
+                SpectraAASIST3 = getattr(spectra_module, "SpectraAASIST3")
+                self.model = SpectraAASIST3.from_pretrained(self.model_name)
+
             self.model.eval()
             self.is_loaded = True
             logger.info("Spectra-AASIST3 model successfully loaded.")
