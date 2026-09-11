@@ -24,4 +24,9 @@ tsconfig.tsbuildinfo
 
 # Archives & Temporary Artifacts
 *.zip
-/data/
+
+# Database files
+backend/data/*.db
+backend/data/*.sqlite
+backend/data/*.db-wal
+backend/data/*.db-shm
