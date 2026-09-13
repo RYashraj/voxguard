@@ -53,18 +53,34 @@ Live dashboard + alerts + verification gate
 
 ---
 
+## Phase 1 Baseline Complete
+✅ **Real-Time Data Flow:** Fully integrated Next.js dashboard receiving live audio risk scoring from a FastAPI WebSocket backend.
+✅ **ML Pipeline Integration:** Switchable ML dispatching (`stub` simulation for dev vs `real` PyTorch execution).
+✅ **Logging:** Asynchronous SQLite session/chunk history logging.
+✅ **Auth:** Google OAuth Sign-In via NextAuth.
+
+---
+
 ## Getting Started
 
-### 1. Run the Frontend & Mock Server
+### 1. Run the FastAPI Backend (WebSocket Server)
 
 ```bash
-# Install dependencies
+# Set up Python virtual environment
+python -m venv venv
+.\venv\Scripts\pip install -r backend\requirements.txt
+
+# Start backend on port 8000
+.\venv\Scripts\python backend\main.py
+```
+
+### 2. Run the Next.js Frontend (Live Dashboard)
+
+```bash
+# Install Node dependencies
 npm install
 
-# Start the mock backend server (port 8000)
-node server.js
-
-# In another terminal, start the Next.js frontend (port 3000)
+# Start frontend on port 3000
 npm run dev
 ```
 

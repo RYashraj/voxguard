@@ -70,13 +70,13 @@ export default function RiskGauge({ score, confidence, alertLevel }: RiskGaugePr
       }}
     >
       <div className="flex items-center justify-between">
-        <p className="font-mono text-[11px] uppercase tracking-wide text-muted">
+        <p className="font-mono text-sm uppercase tracking-wide text-muted font-semibold">
           Rolling risk score
         </p>
-        <p className="font-mono text-[11px] text-muted">/ 100</p>
+        <p className="font-mono text-sm text-muted">/ 100</p>
       </div>
 
-      <div className="mb-[-6px] mt-3 flex justify-between px-1.5 font-mono text-[10px] text-muted">
+      <div className="mb-[-6px] mt-3 flex justify-between px-1.5 font-mono text-sm text-muted">
         <span>0</span>
         <span>50</span>
         <span>100</span>
@@ -133,16 +133,16 @@ export default function RiskGauge({ score, confidence, alertLevel }: RiskGaugePr
 
       <div className="mt-1 flex items-end justify-between border-t border-line pt-5">
         <div>
-          <span className="font-mono text-6xl font-semibold leading-none tabular-nums text-ink">
+          <span className="font-mono text-7xl font-bold leading-none tabular-nums text-ink">
             {displayScore}
           </span>
-          <p className="mt-2 text-sm font-medium" style={{ color }}>
+          <p className="mt-3 text-xl font-semibold" style={{ color }}>
             {LEVEL_LABEL[alertLevel]}
           </p>
         </div>
         <div className="text-right">
-          <p className="font-mono text-xs text-muted">confidence</p>
-          <p className="font-mono text-lg tabular-nums text-ink">
+          <p className="font-mono text-sm text-muted font-medium">confidence</p>
+          <p className="font-mono text-2xl font-bold tabular-nums text-ink">
             {Math.round(confidence * 100)}%
           </p>
         </div>

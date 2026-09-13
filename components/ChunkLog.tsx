@@ -29,17 +29,17 @@ export default function ChunkLog({ history }: ChunkLogProps) {
 
   return (
     <div className="flex flex-1 flex-col border border-line bg-surface">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <p className="font-mono text-[11px] uppercase tracking-wide text-muted">
+      <div className="flex items-center justify-between border-b border-line px-5 py-4">
+        <p className="font-mono text-sm uppercase tracking-wide text-muted font-semibold">
           Chunk log
         </p>
-        <p className="font-mono text-[11px] text-muted">
+        <p className="font-mono text-sm text-muted">
           last {rows.length || 0}
         </p>
       </div>
 
       {rows.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center px-4 py-8 font-mono text-xs text-muted">
+        <div className="flex flex-1 items-center justify-center px-4 py-8 font-mono text-sm text-muted">
           no chunks received yet
         </div>
       ) : (
@@ -47,7 +47,7 @@ export default function ChunkLog({ history }: ChunkLogProps) {
           {rows.map((chunk, i) => (
             <li
               key={chunk.chunk_id}
-              className="flex items-center gap-3 px-4 py-2 font-mono text-xs"
+              className="flex items-center gap-4 px-5 py-3 font-mono text-sm"
             >
               <span className="w-6 shrink-0 text-muted">
                 {String(rows.length - i).padStart(2, "0")}

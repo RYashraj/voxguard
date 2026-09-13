@@ -10,7 +10,7 @@ interface AlertBannerProps {
 export default function AlertBanner({ alertLevel, flags = [] }: AlertBannerProps) {
   if (alertLevel === "low") {
     return (
-      <div className="border border-line bg-surface px-4 py-3 text-sm text-muted">
+      <div className="border border-line bg-surface px-5 py-4 text-lg text-muted">
         No irregularities detected in this call.
       </div>
     );
@@ -25,9 +25,9 @@ export default function AlertBanner({ alertLevel, flags = [] }: AlertBannerProps
       className="animate-banner-in border border-line bg-surface py-3.5 pl-4 pr-4"
       style={{ borderLeft: `6px solid ${color}` }}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold" style={{ color }}>
+          <p className="text-xl font-semibold" style={{ color }}>
             {isHigh
               ? "High risk detected — recommend secondary verification"
               : "Elevated risk — monitor closely"}
@@ -37,7 +37,7 @@ export default function AlertBanner({ alertLevel, flags = [] }: AlertBannerProps
               {flags.map((flag) => (
                 <span
                   key={flag}
-                  className="border px-1.5 py-0.5 font-mono text-[10px]"
+                  className="border px-2 py-1 font-mono text-sm"
                   style={{ borderColor: color, color }}
                 >
                   {flag}
@@ -50,7 +50,7 @@ export default function AlertBanner({ alertLevel, flags = [] }: AlertBannerProps
         {isHigh && (
           <button
             onClick={() => console.log("Secondary verification triggered")}
-            className="shrink-0 border px-3 py-1.5 text-sm font-medium transition-colors"
+            className="shrink-0 border px-4 py-2 text-base font-bold transition-colors"
             style={{ borderColor: color, color }}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = color;

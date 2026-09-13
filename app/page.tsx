@@ -31,7 +31,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Home() {
   const { status: authStatus } = useSession();
-  const { latest, history, status: socketStatus } = useRiskSocket(WS_URL);
+  const { latest, history, status: socketStatus, clear } = useRiskSocket(WS_URL);
   const hasReceivedData = latest !== null;
 
   const [simStatus, setSimStatus] = useState<
@@ -89,7 +89,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-background">
-      <div className="mx-auto max-w-6xl px-5 py-8 md:px-10 md:py-10">
+      <div className="mx-auto max-w-[1600px] w-full px-5 py-8 md:px-10 md:py-10">
         <header className="flex items-center justify-between border-b border-line pb-5">
           <div className="flex items-center gap-3">
             <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
@@ -111,15 +111,15 @@ export default function Home() {
               />
             </svg>
             <div>
-              <p className="font-mono text-sm font-medium tracking-wide text-ink">
+              <p className="font-mono text-lg font-bold tracking-wide text-ink">
                 VOXGUARD
               </p>
-              <p className="text-xs text-muted">Call risk monitor</p>
+              <p className="text-sm text-muted">Call risk monitor</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 border border-line px-2.5 py-1.5 font-mono text-xs text-muted">
+            <span className="flex items-center gap-2 border border-line px-3 py-2 font-mono text-sm text-muted">
               <span
                 className="h-1.5 w-1.5 rounded-full"
                 style={{ backgroundColor: STATUS_COLOR[socketStatus] }}
@@ -129,7 +129,7 @@ export default function Home() {
             <ThemeToggle />
             <button
               onClick={() => signOut()}
-              className="border border-line px-3 py-1.5 font-mono text-xs text-muted hover:text-ink transition-colors"
+              className="border border-line px-4 py-2 font-mono text-sm text-muted hover:text-ink transition-colors"
             >
               Sign out
             </button>
@@ -138,25 +138,52 @@ export default function Home() {
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-ink md:text-2xl">
+            <h1 className="text-3xl font-semibold text-ink md:text-4xl">
               Active call session
             </h1>
-            <p className="mt-1 text-sm text-muted">
+            <p className="mt-2 text-lg text-muted">
               Live voice-impersonation risk score, updated per audio chunk.
             </p>
           </div>
 
           {socketStatus === "open" && (
-            <button
-              onClick={handleStartCall}
-              disabled={simStatus === "starting" || simStatus === "running"}
-              className="border border-line bg-surface px-4 py-2 font-mono text-xs text-ink transition-colors hover:border-ink disabled:opacity-50"
-            >
-              {simStatus === "idle" && "Start call"}
-              {simStatus === "starting" && "Starting…"}
-              {simStatus === "running" && "Call running"}
-              {simStatus === "error" && "Failed to start — retry"}
-            </button>
+            <div className="flex gap-3 items-center">
+              <button
+                onClick={handleStartCall}
+                disabled={simStatus === "starting" || simStatus === "running"}
+                className="border border-line bg-surface px-6 py-3 font-mono text-sm font-bold text-ink transition-colors hover:border-ink disabled:opacity-50"
+              >
+                {simStatus === "idle" && "Start call"}
+                {simStatus === "starting" && "Starting…"}
+                {simStatus === "running" && "Call running"}
+                {simStatus === "error" && "Failed to start — retry"}
+              </button>
+              
+              {simStatus === "running" && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await fetch(`${API_BASE_URL}/stop-simulation`, { method: "POST" });
+                      setSimStatus("idle");
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  }}
+                  className="border border-risk-high text-risk-high hover:bg-risk-high hover:text-surface px-6 py-3 font-mono text-sm font-bold transition-colors"
+                >
+                  Stop call
+                </button>
+              )}
+              
+              {(hasReceivedData || history.length > 0) && simStatus === "idle" && (
+                <button
+                  onClick={clear}
+                  className="border border-line px-6 py-3 font-mono text-sm font-bold text-muted transition-colors hover:text-ink hover:border-ink"
+                >
+                  Clear data
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -180,7 +207,7 @@ export default function Home() {
           </section>
         </div>
 
-        <div className="mt-5 border border-line bg-surface px-4 py-3 font-mono text-xs text-muted">
+        <div className="mt-5 border border-line bg-surface px-5 py-4 font-mono text-sm text-muted">
           {latest ? (
             <>
               chunk {latest.chunk_id} · {latest.timestamp} · chunk_score{" "}

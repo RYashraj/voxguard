@@ -33,10 +33,10 @@ export default function RiskTrend({ history }: RiskTrendProps) {
   return (
     <div className="border border-line bg-surface p-4">
       <div className="flex items-center justify-between">
-        <p className="font-mono text-[11px] uppercase tracking-wide text-muted">
+        <p className="font-mono text-sm uppercase tracking-wide text-muted font-semibold">
           Score trend
         </p>
-        <p className="font-mono text-[11px] text-muted">
+        <p className="font-mono text-sm text-muted">
           {data.length > 0 ? `${data.length} chunks` : "no chunks yet"}
         </p>
       </div>
@@ -61,7 +61,7 @@ export default function RiskTrend({ history }: RiskTrendProps) {
                   border: "1px solid var(--line)",
                   borderRadius: 0,
                   fontFamily: "IBM Plex Mono, monospace",
-                  fontSize: 11,
+                  fontSize: 14,
                   color: "var(--ink)",
                 }}
                 labelFormatter={(_, payload) => payload?.[0]?.payload?.chunkId ?? ""}
@@ -79,7 +79,7 @@ export default function RiskTrend({ history }: RiskTrendProps) {
             </AreaChart>
           </ResponsiveContainer>
         ) : (
-          <div className="flex h-full items-center justify-center font-mono text-xs text-muted">
+          <div className="flex h-full items-center justify-center font-mono text-sm text-muted">
             trend appears after the second chunk
           </div>
         )}

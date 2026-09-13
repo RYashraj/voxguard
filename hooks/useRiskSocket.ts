@@ -12,6 +12,7 @@ interface UseRiskSocketResult {
   latest: RiskUpdate | null;
   history: RiskUpdate[];
   status: ConnectionStatus;
+  clear: () => void;
 }
 
 /**
@@ -29,6 +30,11 @@ export function useRiskSocket(url: string): UseRiskSocketResult {
   // Tracks whether the effect has been torn down, so a pending
   // reconnect doesn't fire after unmount.
   const unmounted = useRef(false);
+
+  const clear = useCallback(() => {
+    setLatest(null);
+    setHistory([]);
+  }, []);
 
   const connect = useCallback(() => {
     if (unmounted.current) return;
@@ -99,5 +105,5 @@ export function useRiskSocket(url: string): UseRiskSocketResult {
     };
   }, [connect]);
 
-  return { latest, history, status };
+  return { latest, history, status, clear };
 }
