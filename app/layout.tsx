@@ -7,6 +7,7 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 import "./globals.css";
+import AuthProvider from "@/components/AuthProvider";
 
 export const metadata: Metadata = {
   title: "VoxGuard — Call risk monitor",
@@ -34,7 +35,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <script dangerouslySetInnerHTML={{ __html: noFlashScript }} />
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

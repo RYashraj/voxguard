@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSession, signIn, signOut } from "next-auth/react";
 import RiskGauge from "@/components/RiskGauge";
 import AlertBanner from "@/components/AlertBanner";
 import LiveWaveform from "@/components/LiveWaveform";
@@ -29,7 +30,8 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function Home() {
-  const { latest, history, status } = useRiskSocket(WS_URL);
+  const { data: session, status: authStatus } = useSession();
+  const { latest, history, status: socketStatus } = useRiskSocket(WS_URL);
   const hasReceivedData = latest !== null;
 
   const [simStatus, setSimStatus] = useState<
@@ -52,6 +54,37 @@ export default function Home() {
       console.error("Failed to start simulation", err);
       setSimStatus("error");
     }
+  }
+
+  if (authStatus === "loading") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background">
+        <p className="font-mono text-sm text-muted">Loading...</p>
+      </main>
+    );
+  }
+
+  if (authStatus === "unauthenticated") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-6 rounded-2xl border border-line bg-surface p-10 text-center">
+          <svg width="40" height="40" viewBox="0 0 30 30" aria-hidden="true">
+            <rect x="0.75" y="0.75" width="28.5" height="28.5" style={{ stroke: "var(--ink)" }} strokeWidth="1.5" fill="none" />
+            <path d="M8 9 L15 21 L22 9" style={{ stroke: "var(--ink)" }} strokeWidth="2" fill="none" strokeLinecap="square" />
+          </svg>
+          <div>
+            <h1 className="text-2xl font-semibold text-ink">VoxGuard</h1>
+            <p className="mt-2 max-w-sm text-sm text-muted">Sign in with your Google account to access the active call monitoring dashboard.</p>
+          </div>
+          <button
+            onClick={() => signIn("google")}
+            className="rounded-lg bg-ink px-6 py-2.5 font-medium text-surface transition-opacity hover:opacity-90"
+          >
+            Sign in with Google
+          </button>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -89,11 +122,17 @@ export default function Home() {
             <span className="flex items-center gap-1.5 border border-line px-2.5 py-1.5 font-mono text-xs text-muted">
               <span
                 className="h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: STATUS_COLOR[status] }}
+                style={{ backgroundColor: STATUS_COLOR[socketStatus] }}
               />
-              {STATUS_LABEL[status]}
+              {STATUS_LABEL[socketStatus]}
             </span>
             <ThemeToggle />
+            <button
+              onClick={() => signOut()}
+              className="border border-line px-3 py-1.5 font-mono text-xs text-muted hover:text-ink transition-colors"
+            >
+              Sign out
+            </button>
           </div>
         </header>
 
@@ -107,7 +146,7 @@ export default function Home() {
             </p>
           </div>
 
-          {status === "open" && (
+          {socketStatus === "open" && (
             <button
               onClick={handleStartCall}
               disabled={simStatus === "starting" || simStatus === "running"}
@@ -128,7 +167,7 @@ export default function Home() {
               confidence={latest?.confidence ?? 0}
               alertLevel={latest?.alert_level ?? "low"}
             />
-            <LiveWaveform active={status === "open" && hasReceivedData} />
+            <LiveWaveform active={socketStatus === "open" && hasReceivedData} />
           </section>
 
           <section className="flex flex-col gap-5 lg:col-span-5">
@@ -148,7 +187,7 @@ export default function Home() {
               {latest.chunk_score.toFixed(2)}
             </>
           ) : (
-            `waiting for first chunk… (${STATUS_LABEL[status]})`
+            `waiting for first chunk… (${STATUS_LABEL[socketStatus]})`
           )}
         </div>
       </div>
