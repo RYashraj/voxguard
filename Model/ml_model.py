@@ -1,10 +1,12 @@
+import os
 import numpy as np
 import torch
 import torchaudio
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
 
 SAMPLE_RATE = 16000
-AUDIO_FILE = r"test_audio\clone_2.wav"
+# AUDIT FIX: was hardcoded r"test_audio\clone_2.wav" — now reads from env var
+AUDIO_FILE = os.getenv("VOXGUARD_TEST_AUDIO_PATH", "test_audio/clone_2.wav")
 
 
 def load_audio():
@@ -81,7 +83,9 @@ def test_spectra(audio):
 
     import sys
 
-    model_path = r"C:\Users\NANDINI\.cache\huggingface\hub\models--lab260--Spectra-AASIST3\snapshots\bc0ded888080ddad493177bb53aa6f5b95219d7c"
+    # AUDIT FIX: was hardcoded absolute path to Nandini's local machine cache
+    # Now reads from SPECTRA_MODEL_PATH env var (defaults to HuggingFace Hub ID)
+    model_path = os.getenv("SPECTRA_MODEL_PATH", "lab260/Spectra-AASIST3")
 
     sys.path.insert(0, model_path)
 
