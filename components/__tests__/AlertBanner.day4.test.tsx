@@ -34,7 +34,7 @@ describe("AlertBanner — Day 4 spec", () => {
 
   it("applies the fade-in animation class when a medium/high banner appears", () => {
     const { container } = render(<AlertBanner alertLevel="medium" />);
-    const banner = container.querySelector(".animate-fade-in-down");
+    const banner = container.querySelector(".animate-banner-in");
     expect(banner).not.toBeNull();
   });
 
@@ -43,6 +43,6 @@ describe("AlertBanner — Day 4 spec", () => {
     expect(
       screen.getByText("No irregularities detected in this call.")
     ).toBeInTheDocument();
-    expect(container.querySelector(".animate-fade-in-down")).toBeNull();
+    expect(container.querySelector(".animate-banner-in")).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -9,39 +10,25 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
-        surface: "#111A2E",
-        "surface-raised": "#182444",
-        border: "#25324F",
-        muted: "#8592AC",
-        signal: "#5EEAD4",
+        // Warm instrument-panel palette — driven by CSS vars so light/dark
+        // both stay in the same warm/ink family (no navy dark-mode flip).
+        background: "var(--bg)",
+        surface: "var(--surface)",
+        ink: "var(--ink)",
+        muted: "var(--muted)",
+        line: "var(--line)",
         risk: {
-          low: "#34D399",
-          medium: "#F5B942",
-          high: "#F0546B",
+          low: "var(--risk-low)",
+          medium: "var(--risk-medium)",
+          high: "var(--risk-high)",
         },
       },
       fontFamily: {
-        sans: [
-          "-apple-system",
-          "BlinkMacSystemFont",
-          "Segoe UI",
-          "Helvetica Neue",
-          "Arial",
-          "sans-serif",
-        ],
-        mono: [
-          "ui-monospace",
-          "SFMono-Regular",
-          "Menlo",
-          "Consolas",
-          "Liberation Mono",
-          "monospace",
-        ],
+        sans: ["IBM Plex Sans", "Segoe UI", "Helvetica Neue", "Arial", "sans-serif"],
+        mono: ["IBM Plex Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
-      boxShadow: {
-        glow: "0 0 24px -4px rgba(94, 234, 212, 0.35)",
+      borderRadius: {
+        DEFAULT: "2px",
       },
     },
   },

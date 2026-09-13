@@ -1,18 +1,37 @@
-// Tiny local WebSocket mock server for testing useRiskSocket before the
-// real backend (Shreyas's endpoint) is ready.
-//
-// Usage:
-//   npm install --save-dev ws
-//   node server.js
-//
-// Sends a fake RiskUpdate every 2s, rolling_risk_score climbing from
-// 0.05 up to ~0.95, alert_level flipping to "medium" > 0.4 and "high" > 0.7,
-// then loops back to a fresh "call".
-
+const http = require("http");
 const { WebSocketServer } = require("ws");
 
-const PORT = 8080;
-const wss = new WebSocketServer({ port: PORT });
+const PORT = process.env.PORT || 8000;
+
+const server = http.createServer((req, res) => {
+  // CORS headers
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if (req.url === "/start-simulation" && req.method === "POST") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", message: "simulation started" }));
+    return;
+  }
+
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "healthy" }));
+    return;
+  }
+
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "Not found" }));
+});
+
+const wss = new WebSocketServer({ server });
 
 function levelFor(score) {
   if (score > 0.7) return "high";
@@ -26,10 +45,11 @@ function flagsFor(level) {
   return [];
 }
 
-console.log(`[mock-ws] listening on ws://localhost:${PORT}`);
+wss.on("connection", (ws, req) => {
+  console.log(`[mock-ws] client connected on ${req.url}`);
 
-wss.on("connection", (ws) => {
-  console.log("[mock-ws] client connected");
+  // Send handshake message as real backend does
+  ws.send(JSON.stringify({ event: "connected", session_id: "mock-session-001" }));
 
   let chunkIndex = 0;
   let rolling = 0.05;
@@ -54,7 +74,9 @@ wss.on("connection", (ws) => {
       alert_level: level,
     };
 
-    ws.send(JSON.stringify(message));
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify(message));
+    }
 
     if (rolling >= 0.97) {
       // "Call" ended — start a new one after a short pause.
@@ -72,3 +94,8 @@ wss.on("connection", (ws) => {
     console.error("[mock-ws] socket error", err);
   });
 });
+
+server.listen(PORT, () => {
+  console.log(`[mock-server] listening on http://localhost:${PORT} and ws://localhost:${PORT}`);
+});
+

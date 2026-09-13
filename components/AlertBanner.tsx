@@ -10,42 +10,56 @@ interface AlertBannerProps {
 export default function AlertBanner({ alertLevel, flags = [] }: AlertBannerProps) {
   if (alertLevel === "low") {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-muted">
-        <span className="h-2 w-2 rounded-full bg-risk-low" />
+      <div className="border border-line bg-surface px-4 py-3 text-sm text-muted">
         No irregularities detected in this call.
       </div>
     );
   }
 
   const isHigh = alertLevel === "high";
+  const color = isHigh ? "var(--risk-high)" : "var(--risk-medium)";
 
   return (
     <div
       key={alertLevel}
-      className={`animate-fade-in-down rounded-xl border px-4 py-3 ${
-        isHigh
-          ? "border-risk-high/40 bg-risk-high/10"
-          : "border-risk-medium/40 bg-risk-medium/10"
-      }`}
+      className="animate-banner-in border border-line bg-surface py-3.5 pl-4 pr-4"
+      style={{ borderLeft: `6px solid ${color}` }}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className={`font-medium ${isHigh ? "text-risk-high" : "text-risk-medium"}`}>
+          <p className="text-sm font-semibold" style={{ color }}>
             {isHigh
               ? "High risk detected — recommend secondary verification"
               : "Elevated risk — monitor closely"}
           </p>
           {flags.length > 0 && (
-            <p className="mt-1 font-mono text-xs text-muted">
-              flags: {flags.join(", ")}
-            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {flags.map((flag) => (
+                <span
+                  key={flag}
+                  className="border px-1.5 py-0.5 font-mono text-[10px]"
+                  style={{ borderColor: color, color }}
+                >
+                  {flag}
+                </span>
+              ))}
+            </div>
           )}
         </div>
 
         {isHigh && (
           <button
             onClick={() => console.log("Secondary verification triggered")}
-            className="shrink-0 rounded-lg bg-risk-high px-3 py-1.5 text-sm font-medium text-[#1A0508] transition-opacity hover:opacity-90"
+            className="shrink-0 border px-3 py-1.5 text-sm font-medium transition-colors"
+            style={{ borderColor: color, color }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = color;
+              e.currentTarget.style.color = "#FFFFFF";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = color;
+            }}
           >
             Trigger secondary verification
           </button>

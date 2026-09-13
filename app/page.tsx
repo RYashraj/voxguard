@@ -4,14 +4,17 @@ import { useState } from "react";
 import RiskGauge from "@/components/RiskGauge";
 import AlertBanner from "@/components/AlertBanner";
 import LiveWaveform from "@/components/LiveWaveform";
+import RiskTrend from "@/components/RiskTrend";
+import ChunkLog from "@/components/ChunkLog";
+import ThemeToggle from "@/components/ThemeToggle";
 import { useRiskSocket } from "@/hooks/useRiskSocket";
 
 // Day 5: pointed at Shreyas's real backend (falls back to the Day 3 mock
 // server if the env vars aren't set, so local dev without the backend
 // running still works).
-const WS_URL = process.env.NEXT_PUBLIC_RISK_WS_URL ?? "ws://127.0.0.1:8000/ws/session";
+const WS_URL = process.env.NEXT_PUBLIC_RISK_WS_URL ?? "ws://localhost:8080";
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 const STATUS_LABEL: Record<string, string> = {
   connecting: "connecting…",
@@ -19,8 +22,14 @@ const STATUS_LABEL: Record<string, string> = {
   closed: "reconnecting…",
 };
 
+const STATUS_COLOR: Record<string, string> = {
+  connecting: "var(--risk-medium)",
+  open: "var(--risk-low)",
+  closed: "var(--risk-high)",
+};
+
 export default function Home() {
-  const { latest, status } = useRiskSocket(WS_URL);
+  const { latest, history, status } = useRiskSocket(WS_URL);
   const hasReceivedData = latest !== null;
 
   const [simStatus, setSimStatus] = useState<
@@ -33,6 +42,8 @@ export default function Home() {
       const res = await fetch(`${API_BASE_URL}/start-simulation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Empty body — backend defaults to the demo WAV + gradual_escalation
+        // scenario when no fields are given.
         body: JSON.stringify({}),
       });
       if (!res.ok) throw new Error(`start-simulation failed: ${res.status}`);
@@ -43,88 +54,103 @@ export default function Home() {
     }
   }
 
-  async function handleStopCall() {
-    try {
-      await fetch(`${API_BASE_URL}/stop-simulation`, { method: "POST" });
-      setSimStatus("idle");
-    } catch (err) {
-      console.error("Failed to stop simulation", err);
-    }
-  }
-
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 px-6 py-12">
-      <header>
-        <div className="flex items-center justify-between">
-          <p className="font-mono text-xs uppercase tracking-wide text-signal">
-            VoxGuard
-          </p>
-          <span className="flex items-center gap-1.5 font-mono text-xs text-muted">
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                status === "open"
-                  ? "bg-risk-low"
-                  : status === "connecting"
-                  ? "bg-risk-medium"
-                  : "bg-risk-high"
-              }`}
-            />
-            {STATUS_LABEL[status]}
-          </span>
-        </div>
-        <h1 className="mt-1 text-2xl font-semibold text-foreground">
-          Call risk monitor
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Live voice-impersonation risk score for the active call.
-        </p>
-      </header>
+    <main className="min-h-screen bg-background">
+      <div className="mx-auto max-w-6xl px-5 py-8 md:px-10 md:py-10">
+        <header className="flex items-center justify-between border-b border-line pb-5">
+          <div className="flex items-center gap-3">
+            <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
+              <rect
+                x="0.75"
+                y="0.75"
+                width="28.5"
+                height="28.5"
+                style={{ stroke: "var(--ink)" }}
+                strokeWidth="1.5"
+                fill="none"
+              />
+              <path
+                d="M8 9 L15 21 L22 9"
+                style={{ stroke: "var(--ink)" }}
+                strokeWidth="2"
+                fill="none"
+                strokeLinecap="square"
+              />
+            </svg>
+            <div>
+              <p className="font-mono text-sm font-medium tracking-wide text-ink">
+                VOXGUARD
+              </p>
+              <p className="text-xs text-muted">Call risk monitor</p>
+            </div>
+          </div>
 
-      {status === "open" && (
-        <div className="flex gap-2">
-          <button
-            onClick={handleStartCall}
-            disabled={simStatus === "starting" || simStatus === "running"}
-            className="flex-1 rounded-xl border border-border bg-surface px-4 py-2 font-mono text-xs text-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {simStatus === "idle" && "Start call"}
-            {simStatus === "starting" && "Starting…"}
-            {simStatus === "running" && "Call running"}
-            {simStatus === "error" && "Failed to start — retry"}
-          </button>
-          {simStatus === "running" && (
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 border border-line px-2.5 py-1.5 font-mono text-xs text-muted">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: STATUS_COLOR[status] }}
+              />
+              {STATUS_LABEL[status]}
+            </span>
+            <ThemeToggle />
+          </div>
+        </header>
+
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold text-ink md:text-2xl">
+              Active call session
+            </h1>
+            <p className="mt-1 text-sm text-muted">
+              Live voice-impersonation risk score, updated per audio chunk.
+            </p>
+          </div>
+
+          {status === "open" && (
             <button
-              onClick={handleStopCall}
-              className="rounded-xl border border-border bg-surface px-4 py-2 font-mono text-xs text-risk-high transition-opacity hover:opacity-90"
+              onClick={handleStartCall}
+              disabled={simStatus === "starting" || simStatus === "running"}
+              className="border border-line bg-surface px-4 py-2 font-mono text-xs text-ink transition-colors hover:border-ink disabled:opacity-50"
             >
-              Stop call
+              {simStatus === "idle" && "Start call"}
+              {simStatus === "starting" && "Starting…"}
+              {simStatus === "running" && "Call running"}
+              {simStatus === "error" && "Failed to start — retry"}
             </button>
           )}
         </div>
-      )}
 
-      <LiveWaveform active={hasReceivedData} />
+        <div className="mt-6 grid gap-5 lg:grid-cols-12">
+          <section className="flex flex-col gap-5 lg:col-span-7">
+            <RiskGauge
+              score={latest?.rolling_risk_score ?? 0}
+              confidence={latest?.confidence ?? 0}
+              alertLevel={latest?.alert_level ?? "low"}
+            />
+            <LiveWaveform active={status === "open" && hasReceivedData} />
+          </section>
 
-      <RiskGauge
-        score={latest?.rolling_risk_score ?? 0}
-        confidence={latest?.confidence ?? 0}
-        alertLevel={latest?.alert_level ?? "low"}
-      />
+          <section className="flex flex-col gap-5 lg:col-span-5">
+            <AlertBanner
+              alertLevel={latest?.alert_level ?? "low"}
+              flags={latest?.flags ?? []}
+            />
+            <RiskTrend history={history} />
+            <ChunkLog history={history} />
+          </section>
+        </div>
 
-      <AlertBanner
-        alertLevel={latest?.alert_level ?? "low"}
-        flags={latest?.flags ?? []}
-      />
-
-      <div className="rounded-xl border border-border bg-surface px-4 py-3 font-mono text-xs text-muted">
-        {latest ? (
-          <>
-            chunk {latest.chunk_id} · {latest.timestamp} · chunk_score{" "}
-            {latest.chunk_score.toFixed(2)}
-          </>
-        ) : (
-          `waiting for first chunk… (${STATUS_LABEL[status]})`
-        )}
+        <div className="mt-5 border border-line bg-surface px-4 py-3 font-mono text-xs text-muted">
+          {latest ? (
+            <>
+              chunk {latest.chunk_id} · {latest.timestamp} · chunk_score{" "}
+              {latest.chunk_score.toFixed(2)}
+            </>
+          ) : (
+            `waiting for first chunk… (${STATUS_LABEL[status]})`
+          )}
+        </div>
       </div>
     </main>
   );
