@@ -7,6 +7,7 @@ venv/
 # Node
 node_modules/
 .next/
+tsconfig.tsbuildinfo
 
 # Env / secrets
 .env
@@ -26,3 +27,9 @@ Teamdocs/
 
 # Archives & Temporary Artifacts
 *.zip
+
+# Database files
+backend/data/*.db
+backend/data/*.sqlite
+backend/data/*.db-wal
+backend/data/*.db-shm

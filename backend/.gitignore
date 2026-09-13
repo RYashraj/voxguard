@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# SQLite Database Artifacts
+data/*.db
+data/*.sqlite
+*.db
+*.sqlite
+*.db-wal
+*.db-shm
+
+# ML Models & HuggingFace Checkpoints
+.cache/
+huggingface/
+*.pt
+*.bin
+*.pth
+*.safetensors
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment Variables
+.env
+.env.local
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
