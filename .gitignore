@@ -17,3 +17,6 @@ node_modules/
 
 # Internal Docs
 *.pdf
+
+# Personal / team-internal docs — NEVER push to remote
+Teamdocs/
