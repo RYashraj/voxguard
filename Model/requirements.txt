@@ -1,0 +1,5 @@
+numpy
+torch
+torchaudio
+transformers
+huggingface_hub
