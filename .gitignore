@@ -20,3 +20,9 @@ node_modules/
 
 # Personal / team-internal docs — NEVER push to remote
 Teamdocs/
+
+# Testing
+.pytest_cache/
+
+# Archives & Temporary Artifacts
+*.zip

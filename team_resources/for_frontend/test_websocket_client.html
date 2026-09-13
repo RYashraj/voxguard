@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Frontend Quick-Test WebSocket Client</title>
+  <style>
+    body { font-family: monospace; background: #111827; color: #F3F4F6; padding: 20px; }
+    button { padding: 8px 16px; margin-right: 8px; cursor: pointer; background: #2563EB; color: white; border: none; border-radius: 4px; }
+    .status { padding: 4px 8px; border-radius: 4px; display: inline-block; margin-bottom: 12px; }
+    .connected { background: #065F46; color: #34D399; }
+    .disconnected { background: #7F1D1D; color: #F87171; }
+    pre { background: #1F2937; padding: 12px; border-radius: 6px; overflow-x: auto; max-height: 400px; }
+  </style>
+</head>
+<body>
+  <h2>VoxGuard WebSocket Test Client (For Meet & Devikrishna)</h2>
+  <div id="status" class="status disconnected">Disconnected from ws://localhost:8000/ws/session</div>
+  <div>
+    <button onclick="startSim()">1. Start Simulation</button>
+    <button onclick="stopSim()" style="background: #DC2626;">2. Stop Simulation</button>
+    <button onclick="clearLog()" style="background: #4B5563;">Clear Log</button>
+  </div>
+  <h3>Live Message Stream:</h3>
+  <pre id="log">Waiting for messages...</pre>
+
+  <script>
+    const ws = new WebSocket("ws://localhost:8000/ws/session");
+    const statusDiv = document.getElementById("status");
+    const logPre = document.getElementById("log");
+
+    ws.onopen = () => {
+      statusDiv.className = "status connected";
+      statusDiv.innerText = "Connected to ws://localhost:8000/ws/session";
+    };
+
+    ws.onclose = () => {
+      statusDiv.className = "status disconnected";
+      statusDiv.innerText = "Disconnected";
+    };
+
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      logPre.innerText = JSON.stringify(data, null, 2) + "\n\n" + logPre.innerText;
+    };
+
+    async function startSim() {
+      await fetch("http://localhost:8000/start-simulation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenario: "gradual_escalation", delay_sec: 2.0 })
+      });
+    }
+
+    async function stopSim() {
+      await fetch("http://localhost:8000/stop-simulation", { method: "POST" });
+    }
+
+    function clearLog() {
+      logPre.innerText = "";
+    }
+  </script>
+</body>
+</html>
