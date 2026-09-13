@@ -15,6 +15,7 @@ tsconfig.tsbuildinfo
 
 # OS
 .DS_Store
+Thumbs.db
 
 # Internal Docs
 *.pdf
@@ -27,6 +28,15 @@ Teamdocs/
 
 # Archives & Temporary Artifacts
 *.zip
+
+# Model weight files — HuggingFace downloads can be multi-GB, never commit
+*.safetensors
+*.bin
+*.ckpt
+.cache/
+
+# Local credential/scratch files — gitignored for safety
+SPAM.txt
 
 # Database files
 backend/data/*.db
