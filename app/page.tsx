@@ -30,7 +30,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function Home() {
-  const { data: session, status: authStatus } = useSession();
+  const { status: authStatus } = useSession();
   const { latest, history, status: socketStatus } = useRiskSocket(WS_URL);
   const hasReceivedData = latest !== null;
 
