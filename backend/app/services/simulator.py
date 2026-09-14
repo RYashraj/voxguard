@@ -124,6 +124,7 @@ async def simulate_call(
     logger.info(f"Starting call simulation for '{file_path}' (session={current_session_id}): {total_chunks} chunks of {chunk_duration_sec}s each.")
 
     aggregator = RollingRiskAggregator(window_size=5, low_threshold=0.4, high_threshold=0.7)
+    latencies: list[float] = []
 
     for idx, chunk in enumerate(chunks):
         # 1. Measure inference latency around ML dispatch only
@@ -135,6 +136,7 @@ async def simulate_call(
         )
         t1 = time.perf_counter()
         inference_latency_ms = round((t1 - t0) * 1000.0, 2)
+        latencies.append(inference_latency_ms)
 
         # 2. Feed score into RollingRiskAggregator & create RiskUpdate
         update = aggregator.create_risk_update(
@@ -167,6 +169,14 @@ async def simulate_call(
         # 5. Delay between chunks to simulate real-time call flow
         if idx < total_chunks - 1:
             await asyncio.sleep(delay_sec)
+
+    # Day 5 requirement: Calculate & log average per-chunk processing latency
+    if latencies:
+        avg_lat = round(sum(latencies) / len(latencies), 2)
+        logger.info(
+            f"[{current_session_id}] Simulation complete ({total_chunks} chunks). "
+            f"Average per-chunk ML latency: {avg_lat:.2f} ms | Final Alert: {aggregator.get_alert_level().upper()}"
+        )
 
 
 class SimulationRunner:

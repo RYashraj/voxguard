@@ -16,7 +16,12 @@ from app.models.schemas import (
 from app.services.websocket_manager import ws_manager
 from app.services.simulator import sim_runner, simulate_call
 from app.utils.audio_generator import ensure_default_sample_audio
-from app.db.session_logger import init_db_async, get_session_history_async
+from app.db.session_logger import (
+    init_db_async,
+    get_session_history_async,
+    get_session_stats_async,
+    list_all_sessions_async,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -111,11 +116,25 @@ async def get_contract_example():
     )
 
 
+@app.get("/sessions", tags=["History"])
+@app.get("/api/sessions", tags=["History"])
+async def list_sessions_endpoint():
+    """
+    Lists all past call sessions stored in the SQLite database with high-level summaries and metrics.
+    """
+    sessions = await list_all_sessions_async()
+    return {
+        "total_sessions": len(sessions),
+        "sessions": sessions
+    }
+
+
+@app.get("/sessions/{session_id}", tags=["History"])
 @app.get("/sessions/{session_id}/history", tags=["History"])
 @app.get("/api/sessions/{session_id}/history", tags=["History"])
 async def get_session_history_endpoint(session_id: str):
     """
-    Returns the full chronological chunk history for a specific call session.
+    Returns the full chronological chunk history and summary statistics for a specific call session.
     """
     history = await get_session_history_async(session_id)
     if not history:
@@ -123,9 +142,11 @@ async def get_session_history_endpoint(session_id: str):
             status_code=404,
             detail=f"No history found for session '{session_id}'"
         )
+    stats = await get_session_stats_async(session_id)
     return {
         "session_id": session_id,
         "total_chunks": len(history),
+        "stats": stats,
         "history": history
     }
 

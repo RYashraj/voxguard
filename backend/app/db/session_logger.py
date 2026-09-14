@@ -29,6 +29,7 @@ def get_db_path() -> str:
 def init_db(db_path: Optional[str] = None) -> bool:
     """
     Initializes SQLite database schema synchronously.
+    Creates chunk_history table and sessions view/alias for Day 5 contract compatibility.
     Returns True if successful, False if an error occurs.
     """
     target_path = db_path or get_db_path()
@@ -50,6 +51,8 @@ def init_db(db_path: Optional[str] = None) -> bool:
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON chunk_history(session_id)")
+            # Day 5 requirement: Ensure 'sessions' table/view is queryable
+            cursor.execute("CREATE VIEW IF NOT EXISTS sessions AS SELECT * FROM chunk_history")
             conn.commit()
         return True
     except Exception as e:
@@ -168,3 +171,74 @@ def get_session_history(session_id: str, db_path: Optional[str] = None) -> List[
 async def get_session_history_async(session_id: str, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
     """Async wrapper offloading get_session_history to a worker thread."""
     return await asyncio.to_thread(get_session_history, session_id, db_path)
+
+
+def get_session_stats(session_id: str, db_path: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Computes summary metrics for a call session:
+    - total_chunks
+    - avg_latency_ms
+    - peak_risk_score
+    - final_alert_level
+    - flags_triggered
+    """
+    history = get_session_history(session_id, db_path)
+    if not history:
+        return {
+            "session_id": session_id,
+            "total_chunks": 0,
+            "avg_latency_ms": 0.0,
+            "peak_risk_score": 0.0,
+            "final_alert_level": "none",
+            "flags_triggered": []
+        }
+
+    total_chunks = len(history)
+    latencies = [item.get("inference_latency_ms", 0.0) for item in history]
+    avg_latency = round(sum(latencies) / total_chunks, 2) if total_chunks > 0 else 0.0
+    peak_risk = max((item.get("rolling_risk_score", 0.0) for item in history), default=0.0)
+    final_alert = history[-1].get("alert_level", "low")
+    
+    all_flags = set()
+    for item in history:
+        all_flags.update(item.get("flags", []))
+
+    return {
+        "session_id": session_id,
+        "total_chunks": total_chunks,
+        "avg_latency_ms": avg_latency,
+        "peak_risk_score": round(peak_risk, 4),
+        "final_alert_level": final_alert,
+        "flags_triggered": sorted(list(all_flags)),
+        "start_time": history[0]["timestamp"],
+        "end_time": history[-1]["timestamp"]
+    }
+
+
+async def get_session_stats_async(session_id: str, db_path: Optional[str] = None) -> Dict[str, Any]:
+    """Async wrapper offloading get_session_stats to a worker thread."""
+    return await asyncio.to_thread(get_session_stats, session_id, db_path)
+
+
+def list_all_sessions(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Lists all distinct call sessions stored in the SQLite database with high-level summaries.
+    """
+    target_path = db_path or get_db_path()
+    try:
+        init_db(target_path)
+        with sqlite3.connect(target_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT session_id FROM chunk_history ORDER BY id DESC")
+            session_ids = [row[0] for row in cursor.fetchall()]
+
+        return [get_session_stats(sid, target_path) for sid in session_ids]
+    except Exception as e:
+        logger.error(f"Failed to list sessions from SQLite: {e}")
+        return []
+
+
+async def list_all_sessions_async(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Async wrapper offloading list_all_sessions to a worker thread."""
+    return await asyncio.to_thread(list_all_sessions, db_path)
+

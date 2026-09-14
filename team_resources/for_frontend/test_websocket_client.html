@@ -2,61 +2,150 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Frontend Quick-Test WebSocket Client</title>
+  <title>VoxGuard WebSocket & Session Test Client</title>
   <style>
-    body { font-family: monospace; background: #111827; color: #F3F4F6; padding: 20px; }
-    button { padding: 8px 16px; margin-right: 8px; cursor: pointer; background: #2563EB; color: white; border: none; border-radius: 4px; }
-    .status { padding: 4px 8px; border-radius: 4px; display: inline-block; margin-bottom: 12px; }
-    .connected { background: #065F46; color: #34D399; }
-    .disconnected { background: #7F1D1D; color: #F87171; }
-    pre { background: #1F2937; padding: 12px; border-radius: 6px; overflow-x: auto; max-height: 400px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0B0F19; color: #F3F4F6; margin: 0; padding: 24px; line-height: 1.5; }
+    h2, h3 { color: #60A5FA; margin-top: 0; }
+    .card { background: #111827; border: 1px solid #1F2937; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+    .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; margin-bottom: 12px; }
+    .connected { background: #064E3B; color: #34D399; border: 1px solid #059669; }
+    .disconnected { background: #7F1D1D; color: #F87171; border: 1px solid #DC2626; }
+    button { padding: 8px 16px; margin-right: 8px; margin-bottom: 8px; cursor: pointer; background: #2563EB; color: white; border: none; border-radius: 6px; font-weight: 500; }
+    button:hover { background: #1D4ED8; }
+    button.stop { background: #DC2626; }
+    button.stop:hover { background: #B91C1C; }
+    button.secondary { background: #374151; }
+    button.secondary:hover { background: #4B5563; }
+    select { padding: 8px 12px; background: #1F2937; color: white; border: 1px solid #374151; border-radius: 6px; margin-right: 8px; }
+    .gauge-container { display: flex; gap: 16px; margin: 16px 0; }
+    .metric-box { background: #1F2937; padding: 12px 16px; border-radius: 6px; flex: 1; }
+    .metric-value { font-size: 24px; font-weight: bold; }
+    .alert-low { color: #10B981; }
+    .alert-medium { color: #F59E0B; }
+    .alert-high { color: #EF4444; }
+    pre { background: #030712; padding: 14px; border-radius: 6px; overflow-x: auto; max-height: 320px; font-size: 13px; border: 1px solid #1F2937; }
   </style>
 </head>
 <body>
-  <h2>VoxGuard WebSocket Test Client (For Meet & Devikrishna)</h2>
-  <div id="status" class="status disconnected">Disconnected from ws://localhost:8000/ws/session</div>
-  <div>
-    <button onclick="startSim()">1. Start Simulation</button>
-    <button onclick="stopSim()" style="background: #DC2626;">2. Stop Simulation</button>
-    <button onclick="clearLog()" style="background: #4B5563;">Clear Log</button>
+  <h2>VoxGuard Live Integration Client (For Frontend Team)</h2>
+  
+  <div class="card">
+    <div id="status" class="status-badge disconnected">Disconnected from ws://localhost:8000/ws/session</div>
+    
+    <div>
+      <label for="scenarioSelect">Scenario: </label>
+      <select id="scenarioSelect">
+        <option value="gradual_escalation">Gradual Escalation (Low -> Medium -> High)</option>
+        <option value="clean">Clean Human Speech (Always Low Risk)</option>
+        <option value="suspicious">Suspicious AI Deepfake (Rapid High Alert)</option>
+      </select>
+      <button onclick="startSim()">▶ Start Live Simulation</button>
+      <button onclick="stopSim()" class="stop">⏹ Stop Simulation</button>
+      <button onclick="fetchPastSessions()" class="secondary">📋 Fetch SQLite Sessions</button>
+      <button onclick="clearLog()" class="secondary">Clear Log</button>
+    </div>
+
+    <div class="gauge-container">
+      <div class="metric-box">
+        <div style="font-size: 12px; color: #9CA3AF;">LATEST CHUNK SCORE</div>
+        <div id="metricChunk" class="metric-value">-</div>
+      </div>
+      <div class="metric-box">
+        <div style="font-size: 12px; color: #9CA3AF;">SMOOTHED ROLLING RISK</div>
+        <div id="metricRolling" class="metric-value">-</div>
+      </div>
+      <div class="metric-box">
+        <div style="font-size: 12px; color: #9CA3AF;">ALERT LEVEL</div>
+        <div id="metricAlert" class="metric-value">-</div>
+      </div>
+      <div class="metric-box">
+        <div style="font-size: 12px; color: #9CA3AF;">DETECTED FLAGS</div>
+        <div id="metricFlags" style="font-size: 14px; font-weight: bold; margin-top: 4px;">[]</div>
+      </div>
+    </div>
   </div>
-  <h3>Live Message Stream:</h3>
-  <pre id="log">Waiting for messages...</pre>
+
+  <div class="card">
+    <h3>Live Stream & Audit Logs</h3>
+    <pre id="log">Waiting for WebSocket connection or simulation...</pre>
+  </div>
 
   <script>
-    const ws = new WebSocket("ws://localhost:8000/ws/session");
-    const statusDiv = document.getElementById("status");
-    const logPre = document.getElementById("log");
+    const wsUrl = "ws://localhost:8000/ws/session";
+    let ws;
 
-    ws.onopen = () => {
-      statusDiv.className = "status connected";
-      statusDiv.innerText = "Connected to ws://localhost:8000/ws/session";
-    };
+    function connectWS() {
+      ws = new WebSocket(wsUrl);
+      const statusDiv = document.getElementById("status");
 
-    ws.onclose = () => {
-      statusDiv.className = "status disconnected";
-      statusDiv.innerText = "Disconnected";
-    };
+      ws.onopen = () => {
+        statusDiv.className = "status-badge connected";
+        statusDiv.innerText = "Connected to " + wsUrl;
+      };
 
-    ws.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      logPre.innerText = JSON.stringify(data, null, 2) + "\n\n" + logPre.innerText;
-    };
+      ws.onclose = () => {
+        statusDiv.className = "status-badge disconnected";
+        statusDiv.innerText = "Disconnected from " + wsUrl;
+        setTimeout(connectWS, 3000); // Reconnect
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const logPre = document.getElementById("log");
+          logPre.innerText = JSON.stringify(data, null, 2) + "\n\n" + logPre.innerText;
+
+          if (data.chunk_id) {
+            document.getElementById("metricChunk").innerText = data.chunk_score.toFixed(4);
+            const rollingEl = document.getElementById("metricRolling");
+            rollingEl.innerText = data.rolling_risk_score.toFixed(4);
+
+            const alertEl = document.getElementById("metricAlert");
+            alertEl.innerText = data.alert_level.toUpperCase();
+            alertEl.className = "metric-value alert-" + data.alert_level;
+
+            document.getElementById("metricFlags").innerText = JSON.stringify(data.flags);
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      };
+    }
+
+    connectWS();
 
     async function startSim() {
-      await fetch("http://localhost:8000/start-simulation", {
+      const scenario = document.getElementById("scenarioSelect").value;
+      const res = await fetch("http://localhost:8000/start-simulation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenario: "gradual_escalation", delay_sec: 2.0 })
+        body: JSON.stringify({ scenario: scenario, delay_sec: 1.5 })
       });
+      const data = await res.json();
+      const logPre = document.getElementById("log");
+      logPre.innerText = "[SIMULATION STARTED]\n" + JSON.stringify(data, null, 2) + "\n\n" + logPre.innerText;
     }
 
     async function stopSim() {
-      await fetch("http://localhost:8000/stop-simulation", { method: "POST" });
+      const res = await fetch("http://localhost:8000/stop-simulation", { method: "POST" });
+      const data = await res.json();
+      const logPre = document.getElementById("log");
+      logPre.innerText = "[SIMULATION STOPPED]\n" + JSON.stringify(data, null, 2) + "\n\n" + logPre.innerText;
+    }
+
+    async function fetchPastSessions() {
+      try {
+        const res = await fetch("http://localhost:8000/sessions");
+        const data = await res.json();
+        const logPre = document.getElementById("log");
+        logPre.innerText = "[SQLITE PAST SESSIONS LOG]\n" + JSON.stringify(data, null, 2) + "\n\n" + logPre.innerText;
+      } catch (err) {
+        alert("Failed to fetch sessions from backend: " + err);
+      }
     }
 
     function clearLog() {
-      logPre.innerText = "";
+      document.getElementById("log").innerText = "";
     }
   </script>
 </body>
