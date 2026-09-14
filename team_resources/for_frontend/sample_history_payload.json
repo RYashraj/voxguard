@@ -1,0 +1,95 @@
+{
+  "session_id": "session_5f088d84",
+  "total_chunks": 6,
+  "stats": {
+    "session_id": "session_5f088d84",
+    "total_chunks": 6,
+    "avg_latency_ms": 254.32,
+    "peak_risk_score": 0.8736,
+    "final_alert_level": "high",
+    "flags_triggered": [
+      "prosody_flatness",
+      "synthetic_artifact"
+    ],
+    "start_time": "2026-09-14T10:15:00.000000+00:00",
+    "end_time": "2026-09-14T10:15:18.000000+00:00"
+  },
+  "history": [
+    {
+      "session_id": "session_5f088d84",
+      "chunk_id": "chunk_001",
+      "timestamp": "2026-09-14T10:15:00.000000+00:00",
+      "chunk_score": 0.1245,
+      "rolling_risk_score": 0.1245,
+      "confidence": 0.9230,
+      "flags": [],
+      "alert_level": "low",
+      "inference_latency_ms": 248.50
+    },
+    {
+      "session_id": "session_5f088d84",
+      "chunk_id": "chunk_002",
+      "timestamp": "2026-09-14T10:15:03.000000+00:00",
+      "chunk_score": 0.1890,
+      "rolling_risk_score": 0.1632,
+      "confidence": 0.9100,
+      "flags": [],
+      "alert_level": "low",
+      "inference_latency_ms": 251.20
+    },
+    {
+      "session_id": "session_5f088d84",
+      "chunk_id": "chunk_003",
+      "timestamp": "2026-09-14T10:15:06.000000+00:00",
+      "chunk_score": 0.5420,
+      "rolling_risk_score": 0.3540,
+      "confidence": 0.8850,
+      "flags": [
+        "prosody_flatness"
+      ],
+      "alert_level": "low",
+      "inference_latency_ms": 260.10
+    },
+    {
+      "session_id": "session_5f088d84",
+      "chunk_id": "chunk_004",
+      "timestamp": "2026-09-14T10:15:09.000000+00:00",
+      "chunk_score": 0.6850,
+      "rolling_risk_score": 0.4980,
+      "confidence": 0.9410,
+      "flags": [
+        "prosody_flatness"
+      ],
+      "alert_level": "medium",
+      "inference_latency_ms": 255.40
+    },
+    {
+      "session_id": "session_5f088d84",
+      "chunk_id": "chunk_005",
+      "timestamp": "2026-09-14T10:15:12.000000+00:00",
+      "chunk_score": 0.8920,
+      "rolling_risk_score": 0.6840,
+      "confidence": 0.9780,
+      "flags": [
+        "synthetic_artifact",
+        "prosody_flatness"
+      ],
+      "alert_level": "medium",
+      "inference_latency_ms": 252.80
+    },
+    {
+      "session_id": "session_5f088d84",
+      "chunk_id": "chunk_006",
+      "timestamp": "2026-09-14T10:15:15.000000+00:00",
+      "chunk_score": 0.9310,
+      "rolling_risk_score": 0.8736,
+      "confidence": 0.9850,
+      "flags": [
+        "synthetic_artifact",
+        "prosody_flatness"
+      ],
+      "alert_level": "high",
+      "inference_latency_ms": 257.90
+    }
+  ]
+}

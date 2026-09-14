@@ -1,0 +1,41 @@
+{
+  "total_sessions": 3,
+  "sessions": [
+    {
+      "session_id": "session_5f088d84",
+      "total_chunks": 6,
+      "avg_latency_ms": 254.32,
+      "peak_risk_score": 0.8736,
+      "final_alert_level": "high",
+      "flags_triggered": [
+        "prosody_flatness",
+        "synthetic_artifact"
+      ],
+      "start_time": "2026-09-14T10:15:00.000000+00:00",
+      "end_time": "2026-09-14T10:15:18.000000+00:00"
+    },
+    {
+      "session_id": "session_a1b2c3d4",
+      "total_chunks": 6,
+      "avg_latency_ms": 12.45,
+      "peak_risk_score": 0.1420,
+      "final_alert_level": "low",
+      "flags_triggered": [],
+      "start_time": "2026-09-14T09:40:00.000000+00:00",
+      "end_time": "2026-09-14T09:40:18.000000+00:00"
+    },
+    {
+      "session_id": "session_e8f90123",
+      "total_chunks": 4,
+      "avg_latency_ms": 14.10,
+      "peak_risk_score": 0.9412,
+      "final_alert_level": "high",
+      "flags_triggered": [
+        "synthetic_artifact",
+        "spectral_discontinuity"
+      ],
+      "start_time": "2026-09-14T09:00:00.000000+00:00",
+      "end_time": "2026-09-14T09:00:12.000000+00:00"
+    }
+  ]
+}
