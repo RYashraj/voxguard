@@ -40,13 +40,38 @@ class RiskUpdate(BaseModel):
     }
 
 
+class Contact(BaseModel):
+    """Known contact profile for voice caller identification."""
+    id: str = Field(..., description="Unique contact ID (e.g. 'contact_001')")
+    name: str = Field(..., description="Full name of contact")
+    role: str = Field(..., description="Job title / role (e.g. 'Chief Financial Officer')")
+    phone_number: str = Field(..., description="Masked phone number (e.g. '+91 98765 43210')")
+    enrolled: bool = Field(True, description="Whether voice biometric profile is enrolled")
+    risk_profile: str = Field("low", description="Baseline risk category")
+
+
+class ContactsResponse(BaseModel):
+    """List of available enrolled contacts."""
+    total_contacts: int
+    contacts: List[Contact]
+
+
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str = "ok"
 
 
 class SimulationRequest(BaseModel):
-    """Request payload to trigger a simulated call stream."""
+    """
+    Request payload to trigger a simulated call stream.
+    Accepts scenario, audio path, caller identification, and transaction context.
+    """
+    caller_id: Optional[str] = Field("unknown", description="Caller ID or Contact ID (e.g., 'contact_001', 'unknown')")
+    caller_name: Optional[str] = Field(None, description="Display name of caller")
+    transaction_context: Optional[Literal["fund_transfer", "information_request", "routine", "default"]] = Field(
+        "default",
+        description="Transaction or business context: 'fund_transfer', 'information_request', 'routine'"
+    )
     file_path: Optional[str] = Field(None, description="Path to a WAV file to stream. If omitted, uses default demo audio.")
     chunk_duration_sec: float = Field(3.0, ge=0.5, le=10.0, description="Duration of each audio chunk in seconds (default 3s)")
     delay_sec: float = Field(3.0, ge=0.01, le=10.0, description="Delay between yielding chunks to mimic live incoming audio")
@@ -62,3 +87,6 @@ class SimulationResponse(BaseModel):
     message: str
     session_id: str
     total_chunks: Optional[int] = None
+    caller_id: Optional[str] = None
+    transaction_context: Optional[str] = None
+

@@ -1,68 +1,115 @@
 # VoxGuard Backend API Cheatsheet (For Frontend Team)
 
 Base URL: `http://localhost:8000`  
-WebSocket: `ws://localhost:8000/ws/session`
+WebSocket: `ws://localhost:8000/ws/session` (or `/api/v1/ws/session`)
 
 ---
 
-## 1. Real-Time Streaming
+## 1. Known Contacts & Caller Setup (Task 1)
 
-### `WS /ws/session` (or `/ws/session/{session_id}`)
-Connect via standard WebSocket.
-- **On Open**: Receives `{"event": "connected", "message": "...", "session_id": "..."}`
-- **During Stream**: Receives `RiskUpdate` JSON message for every 3-second audio chunk:
-  ```json
-  {
-    "chunk_id": "chunk_001",
-    "timestamp": "2026-09-14T10:15:00.000000+00:00",
-    "chunk_score": 0.1245,
-    "rolling_risk_score": 0.1245,
-    "confidence": 0.9230,
-    "flags": [],
-    "alert_level": "low"
-  }
-  ```
+### `GET /api/v1/contacts` (or `/contacts`)
+Retrieves list of enrolled executive/employee contacts for the **Known Contact** dropdown, including fallback unknown caller.
+
+**Response (200 OK):**
+```json
+{
+  "total_contacts": 6,
+  "contacts": [
+    {
+      "id": "contact_001",
+      "name": "Rajesh Sharma",
+      "role": "Chief Financial Officer (CFO)",
+      "phone_number": "+91 98765 43210",
+      "enrolled": true,
+      "risk_profile": "low"
+    },
+    {
+      "id": "contact_002",
+      "name": "Priya Patel",
+      "role": "Director of Information Technology",
+      "phone_number": "+91 98123 45678",
+      "enrolled": true,
+      "risk_profile": "low"
+    },
+    {
+      "id": "contact_003",
+      "name": "Vikram Malhotra",
+      "role": "Chief Executive Officer (CEO)",
+      "phone_number": "+91 98989 12345",
+      "enrolled": true,
+      "risk_profile": "low"
+    },
+    {
+      "id": "contact_004",
+      "name": "Ananya Iyer",
+      "role": "Senior Finance Controller",
+      "phone_number": "+91 97654 32109",
+      "enrolled": true,
+      "risk_profile": "low"
+    },
+    {
+      "id": "contact_005",
+      "name": "Sameer Deshmukh",
+      "role": "Head of Treasury Operations",
+      "phone_number": "+91 99887 76655",
+      "enrolled": true,
+      "risk_profile": "low"
+    },
+    {
+      "id": "unknown",
+      "name": "Unknown / External Caller",
+      "role": "Unenrolled External Line",
+      "phone_number": "+91 91234 56789",
+      "enrolled": false,
+      "risk_profile": "high"
+    }
+  ]
+}
+```
 
 ---
 
-## 2. Simulation & Call Control
+## 2. Session Start & Simulation Controls
 
-### `POST /start-simulation` (or `/api/simulation/start`)
-Triggers the Call Simulator to slice audio and broadcast risk updates live.
+### `POST /api/v1/session/start` (or `/start-simulation`)
+Starts a live audio stream session with caller identification and transaction context.
 
 **Request Body (JSON):**
 ```json
 {
-  "chunk_duration_sec": 3.0,
-  "delay_sec": 2.0,
-  "scenario": "gradual_escalation"
+  "caller_id": "contact_001",
+  "caller_name": "Rajesh Sharma",
+  "transaction_context": "fund_transfer",
+  "scenario": "gradual_escalation",
+  "delay_sec": 2.0
 }
 ```
-*Allowed Scenarios*:
-- `"gradual_escalation"`: Normal speech transitioning to AI voice clone.
-- `"clean"`: 100% human speech (Always Low Alert).
-- `"suspicious"`: Instant high-risk deepfake attack call.
+
+*Transaction Context Options*:
+- `"fund_transfer"`: High-value wire / transfer approval.
+- `"information_request"`: Password / sensitive info inquiry.
+- `"routine"`: Everyday regular business call.
+
+*Scenario Options*:
+- `"gradual_escalation"`: Normal speech transitioning to AI clone.
+- `"clean"`: 100% genuine human speech (Low Alert).
+- `"suspicious"`: Instant deepfake attack call (High Alert).
 
 **Response (200 OK):**
 ```json
 {
   "status": "started",
-  "message": "Simulation running for scenario 'gradual_escalation' at 2.0s interval",
-  "session_id": "session_5f088d84"
+  "message": "Simulation running for scenario 'gradual_escalation' at 2.0s interval (Caller: contact_001, Context: fund_transfer)",
+  "session_id": "session_5f088d84",
+  "caller_id": "contact_001",
+  "transaction_context": "fund_transfer"
 }
-```
-
-**cURL:**
-```bash
-curl -X POST http://localhost:8000/start-simulation \
-  -H "Content-Type: application/json" \
-  -d '{"scenario": "gradual_escalation", "delay_sec": 1.5}'
 ```
 
 ---
 
-### `POST /stop-simulation` (or `/api/simulation/stop`)
-Stops any active simulation stream immediately.
+### `POST /api/v1/session/stop` (or `/stop-simulation`)
+Stops any currently running session.
 
 **Response (200 OK):**
 ```json
@@ -73,66 +120,30 @@ Stops any active simulation stream immediately.
 }
 ```
 
-**cURL:**
-```bash
-curl -X POST http://localhost:8000/stop-simulation
-```
-
 ---
 
-## 3. SQLite Session History & Post-Call Audit (Day 5)
+## 3. Real-Time Streaming
 
-### `GET /sessions` (or `/api/sessions`)
-Lists all previous call sessions stored in the SQLite database.
-
-**Response (200 OK):**
+### `WS /ws/session` (or `/api/v1/ws/session`)
+Stream of `RiskUpdate` JSON messages for each audio chunk:
 ```json
 {
-  "total_sessions": 1,
-  "sessions": [
-    {
-      "session_id": "session_5f088d84",
-      "total_chunks": 6,
-      "avg_latency_ms": 254.32,
-      "peak_risk_score": 0.8736,
-      "final_alert_level": "high",
-      "flags_triggered": ["synthetic_artifact", "prosody_flatness"],
-      "start_time": "2026-09-14T10:15:00.000000+00:00",
-      "end_time": "2026-09-14T10:15:18.000000+00:00"
-    }
-  ]
+  "chunk_id": "chunk_001",
+  "timestamp": "2026-09-14T10:15:00.000000+00:00",
+  "chunk_score": 0.1245,
+  "rolling_risk_score": 0.1245,
+  "confidence": 0.9230,
+  "flags": [],
+  "alert_level": "low"
 }
 ```
 
-**cURL:**
-```bash
-curl http://localhost:8000/sessions
-```
-
 ---
 
-### `GET /sessions/{session_id}/history` (or `/api/sessions/{session_id}/history`)
-Returns the complete chronological chunk list and latency data for a call session.
+## 4. SQLite Session History & Post-Call Audit
 
-**Response (200 OK):**
-See [`sample_history_payload.json`](./sample_history_payload.json).
+### `GET /api/v1/sessions` (or `/sessions`)
+List all previous sessions.
 
-**cURL:**
-```bash
-curl http://localhost:8000/sessions/session_5f088d84/history
-```
-
----
-
-## 4. Utility Endpoints
-
-### `GET /health`
-```json
-{ "status": "ok" }
-```
-
-### `GET /contract`
-Returns an example `RiskUpdate` object for schema validation.
-
-### `GET /demo`
-Serves the built-in reference UI dashboard.
+### `GET /api/v1/session/{session_id}/history` (or `/sessions/{session_id}/history`)
+Retrieve full chunk history and aggregate metrics for a session.

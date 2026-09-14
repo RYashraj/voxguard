@@ -12,6 +12,8 @@ from app.models.schemas import (
     HealthResponse,
     SimulationRequest,
     SimulationResponse,
+    Contact,
+    ContactsResponse,
 )
 from app.services.websocket_manager import ws_manager
 from app.services.simulator import sim_runner, simulate_call
@@ -29,6 +31,58 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("voxguard-backend")
+
+# Mock enrolled contacts for voice caller identification
+MOCK_CONTACTS = [
+    Contact(
+        id="contact_001",
+        name="Rajesh Sharma",
+        role="Chief Financial Officer (CFO)",
+        phone_number="+91 98765 43210",
+        enrolled=True,
+        risk_profile="low"
+    ),
+    Contact(
+        id="contact_002",
+        name="Priya Patel",
+        role="Director of Information Technology",
+        phone_number="+91 98123 45678",
+        enrolled=True,
+        risk_profile="low"
+    ),
+    Contact(
+        id="contact_003",
+        name="Vikram Malhotra",
+        role="Chief Executive Officer (CEO)",
+        phone_number="+91 98989 12345",
+        enrolled=True,
+        risk_profile="low"
+    ),
+    Contact(
+        id="contact_004",
+        name="Ananya Iyer",
+        role="Senior Finance Controller",
+        phone_number="+91 97654 32109",
+        enrolled=True,
+        risk_profile="low"
+    ),
+    Contact(
+        id="contact_005",
+        name="Sameer Deshmukh",
+        role="Head of Treasury Operations",
+        phone_number="+91 99887 76655",
+        enrolled=True,
+        risk_profile="low"
+    ),
+    Contact(
+        id="unknown",
+        name="Unknown / External Caller",
+        role="Unenrolled External Line",
+        phone_number="+91 91234 56789",
+        enrolled=False,
+        risk_profile="high"
+    ),
+]
 
 
 @asynccontextmanager
@@ -97,9 +151,22 @@ async def get_demo_dashboard():
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
+@app.get("/api/v1/health", response_model=HealthResponse, tags=["Health"])
 async def get_health():
     """Health check endpoint. Returns 200 with status ok."""
     return HealthResponse(status="ok")
+
+
+@app.get("/api/v1/contacts", response_model=ContactsResponse, tags=["Contacts"])
+@app.get("/contacts", response_model=ContactsResponse, tags=["Contacts"])
+async def get_contacts_endpoint():
+    """
+    Returns list of enrolled executive and staff contacts for caller identification dropdown.
+    """
+    return ContactsResponse(
+        total_contacts=len(MOCK_CONTACTS),
+        contacts=MOCK_CONTACTS
+    )
 
 
 @app.get("/contract", response_model=RiskUpdate, tags=["Contract"])
@@ -118,6 +185,7 @@ async def get_contract_example():
 
 @app.get("/sessions", tags=["History"])
 @app.get("/api/sessions", tags=["History"])
+@app.get("/api/v1/sessions", tags=["History"])
 async def list_sessions_endpoint():
     """
     Lists all past call sessions stored in the SQLite database with high-level summaries and metrics.
@@ -132,6 +200,8 @@ async def list_sessions_endpoint():
 @app.get("/sessions/{session_id}", tags=["History"])
 @app.get("/sessions/{session_id}/history", tags=["History"])
 @app.get("/api/sessions/{session_id}/history", tags=["History"])
+@app.get("/api/v1/session/{session_id}/history", tags=["History"])
+@app.get("/api/v1/sessions/{session_id}/history", tags=["History"])
 async def get_session_history_endpoint(session_id: str):
     """
     Returns the full chronological chunk history and summary statistics for a specific call session.
@@ -153,6 +223,7 @@ async def get_session_history_endpoint(session_id: str):
 
 @app.websocket("/ws/session")
 @app.websocket("/ws/session/{session_id}")
+@app.websocket("/api/v1/ws/session")
 async def websocket_session_endpoint(websocket: WebSocket, session_id: Optional[str] = None):
     """
     WebSocket endpoint for real-time live streaming of audio chunk risk updates.
@@ -177,6 +248,8 @@ async def websocket_session_endpoint(websocket: WebSocket, session_id: Optional[
 
 @app.post("/start-simulation", response_model=SimulationResponse, tags=["Simulator"])
 @app.post("/api/simulation/start", response_model=SimulationResponse, tags=["Simulator"])
+@app.post("/api/v1/session/start", response_model=SimulationResponse, tags=["Simulator"])
+@app.post("/api/v1/simulation/start", response_model=SimulationResponse, tags=["Simulator"])
 async def start_simulation_endpoint(request: Optional[SimulationRequest] = None):
     """Triggers the Call Simulator to stream audio chunks in real-time over the WebSocket."""
     req = request or SimulationRequest()
@@ -189,8 +262,10 @@ async def start_simulation_endpoint(request: Optional[SimulationRequest] = None)
         )
         return SimulationResponse(
             status="started",
-            message=f"Simulation running for scenario '{req.scenario}' at {req.delay_sec}s interval",
-            session_id=session_id
+            message=f"Simulation running for scenario '{req.scenario}' at {req.delay_sec}s interval (Caller: {req.caller_id}, Context: {req.transaction_context})",
+            session_id=session_id,
+            caller_id=req.caller_id,
+            transaction_context=req.transaction_context
         )
     except Exception as e:
         logger.error(f"Failed to start simulation: {e}")
@@ -199,6 +274,8 @@ async def start_simulation_endpoint(request: Optional[SimulationRequest] = None)
 
 @app.post("/stop-simulation", response_model=SimulationResponse, tags=["Simulator"])
 @app.post("/api/simulation/stop", response_model=SimulationResponse, tags=["Simulator"])
+@app.post("/api/v1/session/stop", response_model=SimulationResponse, tags=["Simulator"])
+@app.post("/api/v1/simulation/stop", response_model=SimulationResponse, tags=["Simulator"])
 async def stop_simulation_endpoint():
     """Stops any currently active call simulation."""
     session_id = sim_runner.session_id or "none"
@@ -208,3 +285,4 @@ async def stop_simulation_endpoint():
         message="Simulation stopped successfully",
         session_id=session_id
     )
+

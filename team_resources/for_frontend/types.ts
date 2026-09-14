@@ -29,11 +29,27 @@ export interface WebSocketHandshake {
   message: string;
   session_id: string;
 }
+export interface Contact {
+  id: string;             // e.g. "contact_001", "unknown"
+  name: string;           // e.g. "Rajesh Sharma"
+  role: string;           // e.g. "Chief Financial Officer (CFO)"
+  phone_number: string;   // e.g. "+91 98765 43210"
+  enrolled: boolean;      // true if voice profile is enrolled
+  risk_profile: string;   // "low" or "high"
+}
+
+export interface ContactsResponse {
+  total_contacts: number;
+  contacts: Contact[];
+}
 
 /**
- * Request payload for POST /start-simulation (or /api/simulation/start)
+ * Request payload for POST /api/v1/session/start (and POST /start-simulation)
  */
 export interface SimulationRequest {
+  caller_id?: string;           // e.g. "contact_001", "unknown"
+  caller_name?: string;         // e.g. "Rajesh Sharma"
+  transaction_context?: "fund_transfer" | "information_request" | "routine" | "default";
   file_path?: string;
   chunk_duration_sec?: number;  // Default: 3.0
   delay_sec?: number;           // Default: 3.0
@@ -41,12 +57,15 @@ export interface SimulationRequest {
 }
 
 /**
- * Response payload for POST /start-simulation and POST /stop-simulation
+ * Response payload for POST /api/v1/session/start and POST /api/v1/session/stop
  */
 export interface SimulationResponse {
   status: "started" | "stopped" | "error";
   message: string;
-  session_id?: string;
+  session_id: string;
+  caller_id?: string;
+  transaction_context?: string;
+  total_chunks?: number;
 }
 
 /**
