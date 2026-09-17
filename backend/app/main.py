@@ -1,9 +1,10 @@
+import os
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
@@ -23,7 +24,13 @@ from app.db.session_logger import (
     get_session_history_async,
     get_session_stats_async,
     list_all_sessions_async,
+    log_chunk_record_async,
 )
+from app.ml.analyzer import analyze_chunk_raw_dispatch
+from app.core.aggregator import RollingRiskAggregator
+from datetime import datetime, timezone
+import time
+import uuid
 
 # Configure logging
 logging.basicConfig(
@@ -245,26 +252,82 @@ async def get_session_history_endpoint(session_id: str):
 @app.websocket("/ws/session")
 @app.websocket("/ws/session/{session_id}")
 @app.websocket("/api/v1/ws/session")
-async def websocket_session_endpoint(websocket: WebSocket, session_id: Optional[str] = None):
+async def websocket_session_endpoint(websocket: WebSocket, session_id: Optional[str] = None, token: Optional[str] = Query(None)):
     """
     WebSocket endpoint for real-time live streaming of audio chunk risk updates.
+    Accepts raw binary PCM audio frames from browser MediaRecorder.
     """
+    expected_token = os.getenv("VOXGUARD_WS_TOKEN")
+    if expected_token and token != expected_token:
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
+
     await ws_manager.connect(websocket)
+    session_id = session_id or f"session_{uuid.uuid4().hex[:8]}"
+    
+    # Initialize a new Risk Aggregator specifically for this live session
+    aggregator = RollingRiskAggregator(window_size=5, low_threshold=0.4, high_threshold=0.7)
+    step_counter = 0
+
     try:
         await websocket.send_json({
             "event": "connected",
             "message": "Connected to VoxGuard real-time stream",
-            "session_id": session_id or "default"
+            "session_id": session_id
         })
         while True:
-            data = await websocket.receive_text()
-            logger.debug(f"Received client message: {data}")
+            message = await websocket.receive()
+            if "text" in message:
+                data = message["text"]
+                logger.debug(f"Received client message: {data}")
+            elif "bytes" in message:
+                pcm_bytes = message["bytes"]
+                step_counter += 1
+                
+                t0 = time.perf_counter()
+                analysis = await analyze_chunk_raw_dispatch(
+                    pcm_bytes=pcm_bytes,
+                    step=step_counter,
+                    scenario="live_mic"
+                )
+                t1 = time.perf_counter()
+                inference_latency_ms = round((t1 - t0) * 1000.0, 2)
+                
+                update = aggregator.create_risk_update(
+                    chunk_id=f"chunk_{step_counter:03d}",
+                    chunk_score=analysis.get("chunk_score", 0.5),
+                    confidence=analysis.get("confidence", 0.0),
+                    flags=analysis.get("flags", []),
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    prosody_score=analysis.get("prosody_score"),
+                    identity_drift=analysis.get("identity_drift")
+                )
+                
+                try:
+                    await log_chunk_record_async(
+                        session_id=session_id,
+                        chunk_id=update.chunk_id,
+                        timestamp=update.timestamp,
+                        chunk_score=update.chunk_score,
+                        rolling_risk_score=update.rolling_risk_score,
+                        confidence=update.confidence,
+                        flags=update.flags,
+                        alert_level=update.alert_level,
+                        inference_latency_ms=inference_latency_ms
+                    )
+                except Exception as e:
+                    logger.error(f"Database log error (continuing stream): {e}")
+
+                # Broadcast risk update back to the sender
+                await websocket.send_json(update.model_dump())
+
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
         logger.info("Client disconnected from WebSocket session.")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         ws_manager.disconnect(websocket)
+
 
 
 @app.post("/start-simulation", response_model=SimulationResponse, tags=["Simulator"])

@@ -74,6 +74,7 @@ Live / simulated call audio (WAV)
 | **ML — Identity** | Speaker embedding cosine drift tracker |
 | **Audio** | pydub, soundfile, wave (stdlib fallback) |
 | **Persistence** | SQLite (async, aiosqlite) |
+| **Blockchain** | web3.py, Ethereum Sepolia testnet, custom FraudLedger smart contract |
 | **Testing** | pytest, pytest-asyncio, httpx |
 
 ---
@@ -106,6 +107,7 @@ python -m venv venv
 |---|---|---|
 | `VOXGUARD_ML_MODE` | `real` | `real` = Spectra-AASIST3 model, `stub` = deterministic test values |
 | `SPECTRA_MODEL_PATH` | `lab260/Spectra-AASIST3` | HuggingFace model ID or local path |
+| `VOXGUARD_WS_TOKEN` | | Authentication token for the WebSocket connection. |
 
 ### 3. Frontend Setup
 
@@ -117,6 +119,7 @@ npm install
 cp .env.example .env.local
 # Set NEXT_PUBLIC_RISK_WS_URL=ws://localhost:8000/ws/session
 # Set NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+# Set NEXT_PUBLIC_VOXGUARD_WS_TOKEN to match VOXGUARD_WS_TOKEN in the backend
 
 # Start frontend dev server on port 3000
 npm run dev
@@ -243,6 +246,29 @@ Thresholds are configurable via `RollingRiskAggregator(low_threshold, high_thres
 | **Total** | **36** | ✅ **36/36 PASSED** |
 
 E2E sprint dry run: **3 scenarios × 6 chunks** verified. Avg ML latency: **0.15 ms/chunk**.
+
+---
+
+## Pre-Assessment Sprint (Sep 18)
+
+A focused fix sprint was completed before the internal SIH assessment covering:
+
+| Task | File(s) Changed | Status |
+|---|---|---|
+| **WebSocket auth token** | `backend/app/main.py`, `app/page.tsx`, `.env.example` | ✅ Done |
+| **Real blockchain anchoring** | `blockchain_anchor.py` | ✅ Done |
+| **Indian accent smoke test** | `scripts/accent_smoke_test.py`, `scripts/README.md` | ✅ Done |
+| **Judge Q&A talk-track** | `QNA_TALKTRACK.md` | ✅ Done |
+| **Removed edge-inference claims** | `ml/README.md`, `Teamdocs/` | ✅ Done |
+
+The blockchain anchor script (`blockchain_anchor.py`) uses `web3.py` to:
+1. Connect to the Sepolia testnet via `SEPOLIA_RPC_URL`
+2. Auto-deploy a `FraudLedger` smart contract if none is set in `WEB3_CONTRACT_ADDRESS`
+3. Submit a `SHA-256` hash of every high-risk audit event on-chain
+4. Write the Etherscan link back to the SQLite `chunk_history` table
+
+Run it standalone: `python blockchain_anchor.py`  
+Fallback: if no wallet is configured, it runs in local-hash mode (safe for demos).
 
 ---
 

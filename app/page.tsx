@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useSession, signIn, signOut } from "next-auth/react";
 import RiskGauge from "@/components/RiskGauge";
 import AlertBanner from "@/components/AlertBanner";
 import LiveWaveform from "@/components/LiveWaveform";
+import LiveTranscript from "@/components/LiveTranscript";
 import RiskTrend from "@/components/RiskTrend";
 import ChunkLog from "@/components/ChunkLog";
 import PreTransactionModal from "@/components/PreTransactionModal";
@@ -13,6 +14,7 @@ import AlertToast from "@/components/AlertToast";
 import IdentityBadge from "@/components/IdentityBadge";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useRiskSocket } from "@/hooks/useRiskSocket";
+import { useMicrophone } from "@/hooks/useMicrophone";
 import { MOCK_PROSODY_DRIFT_ENABLED, getMockIdentityDrift } from "@/lib/mockSignals";
 
 interface Contact {
@@ -32,7 +34,10 @@ const DEFAULT_MOCK_CONTACTS: Contact[] = [
 // Day 5: pointed at Shreyas's real backend (falls back to the Day 3 mock
 // server if the env vars aren't set, so local dev without the backend
 // running still works).
-const WS_URL = process.env.NEXT_PUBLIC_RISK_WS_URL ?? "ws://localhost:8080";
+const BASE_WS_URL = process.env.NEXT_PUBLIC_RISK_WS_URL ?? "ws://localhost:8080";
+const WS_TOKEN = process.env.NEXT_PUBLIC_VOXGUARD_WS_TOKEN ?? "";
+const WS_URL = WS_TOKEN ? `${BASE_WS_URL}?token=${WS_TOKEN}` : BASE_WS_URL;
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -50,8 +55,14 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Home() {
   const { status: authStatus } = useSession();
-  const { latest, history, status: socketStatus, warning, clear, clearWarning } = useRiskSocket(WS_URL);
+  const { latest, history, status: socketStatus, warning, clear, clearWarning, sendBytes } = useRiskSocket(WS_URL);
   const hasReceivedData = latest !== null;
+
+  const handleAudioChunk = useCallback((pcmBytes: Int16Array) => {
+    sendBytes(pcmBytes.buffer as ArrayBuffer);
+  }, [sendBytes]);
+
+  const { start: startMic, stop: stopMic } = useMicrophone(handleAudioChunk);
 
   const [simStatus, setSimStatus] = useState<
     "idle" | "starting" | "running" | "error"
@@ -60,6 +71,8 @@ export default function Home() {
   const [contacts, setContacts] = useState<Contact[]>(DEFAULT_MOCK_CONTACTS);
   const [selectedCaller, setSelectedCaller] = useState<string>("unknown");
   const [selectedContext, setSelectedContext] = useState<string>("routine");
+  const [selectedScenario, setSelectedScenario] = useState<string>("gradual_escalation");
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   const [showModalOverride, setShowModalOverride] = useState(false);
   const [modalHandled, setModalHandled] = useState(false);
@@ -104,30 +117,46 @@ export default function Home() {
     setModalHandled(false);
     setShowModalOverride(false);
     try {
-      const startUrl = `${API_BASE_URL}/api/v1/session/start`;
-      const res = await fetch(startUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          caller_id: selectedCaller,
-          transaction_context: selectedContext,
-        }),
-      });
-      if (!res.ok) {
-        // Fallback to legacy endpoint if /api/v1/session/start fails
-        const legacyRes = await fetch(`${API_BASE_URL}/start-simulation`, {
+      if (selectedScenario === "live_mic") {
+        // Live streaming from microphone
+        await startMic();
+      } else {
+        // Fallback to simulator for predefined WAVs
+        const startUrl = `${API_BASE_URL}/api/v1/session/start`;
+        const res = await fetch(startUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             caller_id: selectedCaller,
             transaction_context: selectedContext,
+            scenario: selectedScenario,
           }),
         });
-        if (!legacyRes.ok) throw new Error(`start-simulation failed: ${legacyRes.status}`);
+        if (!res.ok) {
+          const legacyRes = await fetch(`${API_BASE_URL}/start-simulation`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              caller_id: selectedCaller,
+              transaction_context: selectedContext,
+              scenario: selectedScenario,
+            }),
+          });
+          if (!legacyRes.ok) throw new Error(`start-simulation failed: ${legacyRes.status}`);
+        }
+
+        if (audioRef.current) {
+          audioRef.current.src = selectedScenario === "suspicious"
+            ? "/audio/asvspoof_spoof_demo.wav"
+            : "/audio/demo_call.wav";
+          audioRef.current.currentTime = 0;
+          audioRef.current.play().catch(e => console.error("Audio playback failed:", e));
+        }
       }
+
       setSimStatus("running");
     } catch (err) {
-      console.error("Failed to start simulation", err);
+      console.error("Failed to start call", err);
       setSimStatus("error");
     }
   }
@@ -269,6 +298,23 @@ export default function Home() {
               </select>
             </div>
 
+            <div className="flex flex-col gap-1.5">
+              <label className="font-mono text-xs text-muted uppercase tracking-wider">
+                Call Scenario
+              </label>
+              <select
+                value={selectedScenario}
+                onChange={(e) => setSelectedScenario(e.target.value)}
+                disabled={simStatus === "running" || simStatus === "starting"}
+                className="border border-line bg-background px-3 py-2.5 font-mono text-sm text-ink outline-none transition-colors focus:border-ink disabled:opacity-50 min-w-[190px]"
+              >
+                <option value="live_mic">🎙️ Live Microphone</option>
+                <option value="clean">🟢 Clean Call (Simulated)</option>
+                <option value="gradual_escalation">🟡 Gradual Escalation (Simulated)</option>
+                <option value="suspicious">🔴 Suspicious (Simulated)</option>
+              </select>
+            </div>
+
             {socketStatus === "open" && (
               <div className="flex gap-3 items-center">
                 <button
@@ -286,8 +332,16 @@ export default function Home() {
                   <button
                     onClick={async () => {
                       try {
-                        await fetch(`${API_BASE_URL}/stop-simulation`, { method: "POST" });
+                        if (selectedScenario === "live_mic") {
+                          stopMic();
+                        } else {
+                          await fetch(`${API_BASE_URL}/stop-simulation`, { method: "POST" });
+                        }
                         setSimStatus("idle");
+                        if (audioRef.current) {
+                          audioRef.current.pause();
+                          audioRef.current.currentTime = 0;
+                        }
                       } catch (e) {
                         console.error(e);
                       }
@@ -336,6 +390,7 @@ export default function Home() {
               alertLevel={latest?.alert_level ?? "low"}
             />
             <LiveWaveform active={socketStatus === "open" && hasReceivedData} />
+            <LiveTranscript active={socketStatus === "open" && selectedScenario === "live_mic" && simStatus === "running"} />
           </section>
 
           <section className="flex flex-col gap-5 lg:col-span-5">
@@ -379,13 +434,14 @@ export default function Home() {
         isOpen={showModalOverride || warning !== null}
         reason={warning?.reason}
         recommendedActions={warning?.recommended_actions}
-        onActionSelect={(action) => {
+        onActionSelect={() => {
           // User triggered secondary verification action
           setShowModalOverride(false);
           setModalHandled(true);
           clearWarning();
         }}
       />
+      <audio ref={audioRef} className="hidden" />
     </main>
   );
 }
