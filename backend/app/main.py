@@ -12,9 +12,11 @@ from app.models.schemas import (
     HealthResponse,
     SimulationRequest,
     SimulationResponse,
+    SimulationContext,
 )
 from app.services.websocket_manager import ws_manager
 from app.services.simulator import sim_runner, simulate_call
+from app.services.session_context_manager import session_context_mgr
 from app.utils.audio_generator import ensure_default_sample_audio
 from app.db.session_logger import init_db_async, get_session_history_async
 
@@ -130,6 +132,46 @@ async def get_session_history_endpoint(session_id: str):
     }
 
 
+@app.post("/sessions/{session_id}/context", tags=["Context"])
+@app.post("/api/sessions/{session_id}/context", tags=["Context"])
+async def update_session_context_endpoint(session_id: str, context: SimulationContext):
+    """
+    Updates in-memory call/transaction context for an active demo session.
+    Context is stored ONLY in memory for the active demo session and is NEVER written to SQLite.
+    Returns 404 if session_id is not active or unknown.
+    """
+    updated = session_context_mgr.set_context(session_id, context)
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session '{session_id}' not found or inactive."
+        )
+    return {
+        "session_id": session_id,
+        "status": "updated",
+        "context": context
+    }
+
+
+@app.get("/sessions/{session_id}/context", tags=["Context"])
+@app.get("/api/sessions/{session_id}/context", tags=["Context"])
+async def get_session_context_endpoint(session_id: str):
+    """
+    Retrieves in-memory call/transaction context for an active demo session.
+    Returns 404 if session_id is not active or unknown.
+    """
+    context = session_context_mgr.get_context(session_id)
+    if not context:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session '{session_id}' not found or inactive."
+        )
+    return {
+        "session_id": session_id,
+        "context": context
+    }
+
+
 @app.websocket("/ws/session")
 @app.websocket("/ws/session/{session_id}")
 async def websocket_session_endpoint(websocket: WebSocket, session_id: Optional[str] = None):
@@ -164,7 +206,9 @@ async def start_simulation_endpoint(request: Optional[SimulationRequest] = None)
             file_path=req.file_path,
             chunk_duration_sec=req.chunk_duration_sec,
             delay_sec=req.delay_sec,
-            scenario=req.scenario
+            scenario=req.scenario,
+            reference_audio_path=req.reference_audio_path,
+            context=req.context
         )
         return SimulationResponse(
             status="started",
@@ -187,3 +231,4 @@ async def stop_simulation_endpoint():
         message="Simulation stopped successfully",
         session_id=session_id
     )
+

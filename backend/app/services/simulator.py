@@ -8,12 +8,14 @@ import logging
 from typing import AsyncGenerator, Dict, Any, Optional
 from datetime import datetime, timezone
 
-from app.models.schemas import RiskUpdate
+from app.models.schemas import RiskUpdate, SimulationContext
 from app.core.aggregator import RollingRiskAggregator
 from app.ml.analyzer import analyze_chunk_dispatch
 from app.db.session_logger import log_chunk_record_async
 from app.services.websocket_manager import ws_manager
 from app.utils.audio_generator import ensure_default_sample_audio
+from app.services.session_context_manager import session_context_mgr
+from app.services.context_policy import evaluate_advisory_policy
 
 logger = logging.getLogger("voxguard.simulator")
 
@@ -105,13 +107,20 @@ async def simulate_call(
     delay_sec: float = 3.0,
     scenario: str = "gradual_escalation",
     session_id: Optional[str] = None,
-    reference_audio_path: Optional[str] = None
+    reference_audio_path: Optional[str] = None,
+    context: Optional[SimulationContext] = None
 ) -> AsyncGenerator[RiskUpdate, None]:
     """
     Simulates a live phone call by streaming sliced chunks over time.
     Supports optional consented reference audio for speaker identity verification.
     """
     current_session_id = session_id or f"session_{uuid.uuid4().hex[:8]}"
+
+    # Ensure session is registered in-memory for context evaluation if standalone
+    if not session_context_mgr.is_active_session(current_session_id):
+        session_context_mgr.register_session(current_session_id, context)
+    elif context is not None:
+        session_context_mgr.set_context(current_session_id, context)
 
     if not file_path or not os.path.exists(file_path):
         file_path = ensure_default_sample_audio()
@@ -167,7 +176,7 @@ async def simulate_call(
                 timestamp=datetime.now(timezone.utc).isoformat()
             )
 
-            # 4. Log chunk record into SQLite safely
+            # 4. Log chunk record into SQLite safely (ONLY original 7 core fields)
             try:
                 await log_chunk_record_async(
                     session_id=current_session_id,
@@ -194,6 +203,8 @@ async def simulate_call(
         # Wipe in-memory reference embedding when session ends/stops
         if identity_tracker:
             identity_tracker.clear()
+        if session_id is None:
+            session_context_mgr.remove_session(current_session_id)
 
 
 class SimulationRunner:
@@ -219,13 +230,17 @@ class SimulationRunner:
         chunk_duration_sec: float = 3.0,
         delay_sec: float = 3.0,
         scenario: str = "gradual_escalation",
-        reference_audio_path: Optional[str] = None
+        reference_audio_path: Optional[str] = None,
+        context: Optional[SimulationContext] = None
     ) -> str:
         if self._is_running and self._current_task and not self._current_task.done():
             self.stop()
 
         self._session_id = f"session_{uuid.uuid4().hex[:8]}"
         self._is_running = True
+
+        # Register in-memory session context
+        session_context_mgr.register_session(self._session_id, context)
 
         async def _run_stream():
             try:
@@ -236,17 +251,28 @@ class SimulationRunner:
                     delay_sec=delay_sec,
                     scenario=scenario,
                     session_id=self._session_id,
-                    reference_audio_path=reference_audio_path
+                    reference_audio_path=reference_audio_path,
+                    context=context
                 ):
                     if not self._is_running:
                         break
-                    await ws_manager.broadcast(risk_update.model_dump())
+                    
+                    payload = risk_update.model_dump()
+                    active_ctx = session_context_mgr.get_context(self._session_id)
+                    advisory = evaluate_advisory_policy(
+                        rolling_risk_score=risk_update.rolling_risk_score,
+                        alert_level=risk_update.alert_level,
+                        context=active_ctx
+                    )
+                    payload["advisory"] = advisory.model_dump()
+
+                    await ws_manager.broadcast(payload)
                     logger.info(
                         f"[{self._session_id}] Streamed {risk_update.chunk_id}: "
                         f"chunk_score={risk_update.chunk_score:.4f}, "
                         f"rolling={risk_update.rolling_risk_score:.4f}, "
                         f"alert={risk_update.alert_level}, "
-                        f"flags={risk_update.flags}"
+                        f"recommendation={advisory.recommendation}"
                     )
             except asyncio.CancelledError:
                 logger.info(f"Simulation task {self._session_id} cancelled.")
@@ -254,7 +280,9 @@ class SimulationRunner:
                 logger.error(f"Error in simulation stream: {e}", exc_info=True)
             finally:
                 self._is_running = False
-                logger.info(f"Simulation task {self._session_id} finished.")
+                if self._session_id:
+                    session_context_mgr.remove_session(self._session_id)
+                logger.info(f"Simulation task finished.")
 
         self._current_task = asyncio.create_task(_run_stream())
         return self._session_id
@@ -263,8 +291,11 @@ class SimulationRunner:
         if self._current_task and not self._current_task.done():
             self._is_running = False
             self._current_task.cancel()
+        if self._session_id:
+            session_context_mgr.remove_session(self._session_id)
         self._is_running = False
 
 
 sim_runner = SimulationRunner()
+
 
