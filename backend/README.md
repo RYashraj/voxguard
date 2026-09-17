@@ -16,17 +16,29 @@ Audio Input (Live Mic / Sliced WAV Chunks)
    Audio Slicer (3s Chunks)
                │
                ▼
-      ML Analysis Engine (app.ml.analyzer / Spectra-AASIST3)
-               │
-               ▼
-   RollingRiskAggregator (5-Chunk Weighted Window)
-               │
-               ▼
-   SQLite Session Logger (chunk_history + latency) ◄── non-blocking
-               │
-               ▼
-   WebSocket Broadcast (/ws/session) -> Frontend Dashboard & Alert Gates
+       ML Analysis Engine (Spectra-AASIST3 + Prosody Layer app.ml.prosody)
+                │
+                ▼
+    RollingRiskAggregator (5-Chunk Weighted Window)
+                │
+                ▼
+    SQLite Session Logger (chunk_history + latency) ◄── non-blocking
+                │
+                ▼
+    WebSocket Broadcast (/ws/session) -> Frontend Dashboard & Alert Gates
 ```
+
+---
+
+## Prosody & Behavioural Analysis Layer
+
+The backend incorporates an explainable prosody feature extraction layer (`app.ml.prosody`) using `librosa` / `scipy`:
+- **Pitch / F0 Analysis**: Pitch mean, variance, and standard deviation tracking across voiced speech frames.
+- **Voiced-Speech Ratio**: Ratio of voiced frames to active audio frames.
+- **Pause & Rhythm Tracking**: Continuous pause count and pause duration ratio detection.
+- **Speech Rate Proxy**: Voiced-burst transition rate per second.
+- **Explainable Reason Codes**: Internal reason codes (`low_f0_variability`, `high_pause_ratio`, `low_voiced_ratio`, `insufficient_speech`) mapping to UI-compatible flags (`prosody_flatness`, `high_pause_ratio`, `low_voiced_ratio`).
+- **Detailed Documentation**: See [PROSODY_ANALYSIS.md](file:///D:/VoxGuard/voxguard-github-integration/backend/PROSODY_ANALYSIS.md) for full methodology and disclaimers.
 
 ---
 

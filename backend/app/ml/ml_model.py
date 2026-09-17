@@ -15,6 +15,8 @@ try:
 except ImportError:
     HAS_NUMPY = False
 
+from app.ml.prosody import extract_prosody_features, assess_prosody
+
 SAMPLE_RATE = 16000
 REQUIRED_SAMPLES = 64600  # ~4 seconds required by Spectra-AASIST3
 
@@ -168,8 +170,18 @@ class SpectraAASISTDetector:
           Class 0 = Spoof / AI-generated (high chunk_score)
           Class 1 = Bona-fide / Human (low chunk_score)
         """
+        # Safely run prosody extraction on pre-parsed 16kHz audio
+        prosody_flags = []
+        try:
+            p_features = extract_prosody_features(audio, sample_rate=SAMPLE_RATE)
+            p_eval = assess_prosody(p_features)
+            prosody_flags = p_eval.get("flags", [])
+        except Exception as p_err:
+            logger.warning(f"Prosody extraction error: {p_err}")
+            prosody_flags = ["prosody_unavailable"]
+
         if not self.is_loaded:
-            active_flags = sorted(list(set(flags + ["model_unavailable"])))
+            active_flags = sorted(list(set(flags + prosody_flags + ["model_unavailable"])))
             return {
                 "chunk_score": 0.5,
                 "confidence": 0.0,
@@ -196,22 +208,24 @@ class SpectraAASISTDetector:
             raw_conf = float(abs(spoof_prob - 0.5) * 2)
             confidence = round(max(0.70, min(0.99, raw_conf)), 4)
 
+            # Acoustic anti-spoofing flags from Spectra score
             if chunk_score > 0.70:
                 flags.append("synthetic_artifact")
-            elif chunk_score > 0.40:
-                flags.append("prosody_flatness")
+
+            combined_flags = sorted(list(set(flags + prosody_flags)))
 
             return {
                 "chunk_score": chunk_score,
                 "confidence": confidence,
-                "flags": sorted(list(set(flags)))
+                "flags": combined_flags
             }
         except Exception as e:
             logger.error("Inference execution error: %s", type(e).__name__)
+            combined_flags = sorted(list(set(flags + prosody_flags + ["inference_error"])))
             return {
                 "chunk_score": 0.5,
                 "confidence": 0.0,
-                "flags": sorted(list(set(flags + ["inference_error"])))
+                "flags": combined_flags
             }
 
 
