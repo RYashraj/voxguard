@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { RiskUpdate } from "@/types/risk";
+import { RiskUpdate, PreTransactionWarning } from "@/types/risk";
 
 const RECONNECT_DELAY_MS = 2000;
 const MAX_HISTORY = 20;
@@ -12,7 +12,9 @@ interface UseRiskSocketResult {
   latest: RiskUpdate | null;
   history: RiskUpdate[];
   status: ConnectionStatus;
+  warning: PreTransactionWarning | null;
   clear: () => void;
+  clearWarning: () => void;
 }
 
 /**
@@ -24,6 +26,7 @@ export function useRiskSocket(url: string): UseRiskSocketResult {
   const [latest, setLatest] = useState<RiskUpdate | null>(null);
   const [history, setHistory] = useState<RiskUpdate[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [warning, setWarning] = useState<PreTransactionWarning | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -34,6 +37,11 @@ export function useRiskSocket(url: string): UseRiskSocketResult {
   const clear = useCallback(() => {
     setLatest(null);
     setHistory([]);
+    setWarning(null);
+  }, []);
+
+  const clearWarning = useCallback(() => {
+    setWarning(null);
   }, []);
 
   const connect = useCallback(() => {
@@ -52,6 +60,24 @@ export function useRiskSocket(url: string): UseRiskSocketResult {
       if (unmounted.current) return;
       try {
         const parsed = JSON.parse(event.data);
+
+        // Check if message is a pretransaction_warning event
+        if (
+          parsed?.type === "pretransaction_warning" ||
+          parsed?.event === "pretransaction_warning"
+        ) {
+          setWarning({
+            session_id: parsed?.session_id,
+            reason: parsed?.reason ?? "High voice impersonation risk during active session",
+            recommended_actions: parsed?.recommended_actions ?? [
+              "Call-back Verification",
+              "Multi-Factor Authentication (MFA)",
+              "Escalate to Supervisor",
+            ],
+            timestamp: parsed?.timestamp ?? new Date().toISOString(),
+          });
+          return;
+        }
 
         // The backend sends a non-RiskUpdate handshake message right after
         // connecting (e.g. {"event": "connected", "session_id": "..."}).
@@ -105,5 +131,5 @@ export function useRiskSocket(url: string): UseRiskSocketResult {
     };
   }, [connect]);
 
-  return { latest, history, status, clear };
+  return { latest, history, status, warning, clear, clearWarning };
 }

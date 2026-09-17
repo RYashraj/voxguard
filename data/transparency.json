@@ -1,0 +1,37 @@
+[
+  {
+    "accent_language": "Indian English",
+    "accuracy": 90,
+    "sample_size": 50
+  },
+  {
+    "accent_language": "Hindi",
+    "accuracy": 88,
+    "sample_size": 50
+  },
+  {
+    "accent_language": "Tamil",
+    "accuracy": 85,
+    "sample_size": 50
+  },
+  {
+    "accent_language": "Bengali",
+    "accuracy": 84,
+    "sample_size": 50
+  },
+  {
+    "accent_language": "Marathi",
+    "accuracy": 87,
+    "sample_size": 50
+  },
+  {
+    "accent_language": "Telugu",
+    "accuracy": 86,
+    "sample_size": 50
+  },
+  {
+    "accent_language": "Gujarati",
+    "accuracy": 94,
+    "sample_size": 100
+  }
+]

@@ -1,14 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useSession, signIn, signOut } from "next-auth/react";
 import RiskGauge from "@/components/RiskGauge";
 import AlertBanner from "@/components/AlertBanner";
 import LiveWaveform from "@/components/LiveWaveform";
 import RiskTrend from "@/components/RiskTrend";
 import ChunkLog from "@/components/ChunkLog";
+import PreTransactionModal from "@/components/PreTransactionModal";
+import AlertToast from "@/components/AlertToast";
+import IdentityBadge from "@/components/IdentityBadge";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useRiskSocket } from "@/hooks/useRiskSocket";
+import { MOCK_PROSODY_DRIFT_ENABLED, getMockIdentityDrift } from "@/lib/mockSignals";
+
+interface Contact {
+  id: string;
+  name: string;
+  role: string;
+}
+
+const DEFAULT_MOCK_CONTACTS: Contact[] = [
+  { id: "unknown", name: "Unknown Caller", role: "Unverified Contact" },
+  { id: "rahul_sharma", name: "Rahul Sharma", role: "Regional Manager" },
+  { id: "priya_patel", name: "Priya Patel", role: "Chief Financial Officer" },
+  { id: "amit_kumar", name: "Amit Kumar", role: "Vendor Account Lead" },
+  { id: "neha_singh", name: "Neha Singh", role: "HR Operations" },
+];
 
 // Day 5: pointed at Shreyas's real backend (falls back to the Day 3 mock
 // server if the env vars aren't set, so local dev without the backend
@@ -31,24 +50,81 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Home() {
   const { status: authStatus } = useSession();
-  const { latest, history, status: socketStatus, clear } = useRiskSocket(WS_URL);
+  const { latest, history, status: socketStatus, warning, clear, clearWarning } = useRiskSocket(WS_URL);
   const hasReceivedData = latest !== null;
 
   const [simStatus, setSimStatus] = useState<
     "idle" | "starting" | "running" | "error"
   >("idle");
 
+  const [contacts, setContacts] = useState<Contact[]>(DEFAULT_MOCK_CONTACTS);
+  const [selectedCaller, setSelectedCaller] = useState<string>("unknown");
+  const [selectedContext, setSelectedContext] = useState<string>("routine");
+
+  const [showModalOverride, setShowModalOverride] = useState(false);
+  const [modalHandled, setModalHandled] = useState(false);
+
+  useEffect(() => {
+    if (
+      (warning !== null ||
+        (latest?.alert_level === "high" && selectedContext !== "routine")) &&
+      !modalHandled
+    ) {
+      setShowModalOverride(true);
+    }
+  }, [latest, warning, selectedContext, modalHandled]);
+
+  useEffect(() => {
+    async function fetchContacts() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/contacts`);
+        if (res.ok) {
+          const data = await res.json();
+          // Real backend responds with { total_contacts, contacts: Contact[] }
+          // (ContactsResponse), not a bare array.
+          const list: Contact[] = Array.isArray(data?.contacts) ? data.contacts : [];
+          if (list.length > 0) {
+            const hasUnknown = list.some((c) => c.id === "unknown");
+            setContacts(
+              hasUnknown
+                ? list
+                : [{ id: "unknown", name: "Unknown Caller", role: "Unverified Contact" }, ...list]
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch contacts from API, using fallback mock list", err);
+      }
+    }
+    fetchContacts();
+  }, []);
+
   async function handleStartCall() {
     setSimStatus("starting");
+    setModalHandled(false);
+    setShowModalOverride(false);
     try {
-      const res = await fetch(`${API_BASE_URL}/start-simulation`, {
+      const startUrl = `${API_BASE_URL}/api/v1/session/start`;
+      const res = await fetch(startUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Empty body — backend defaults to the demo WAV + gradual_escalation
-        // scenario when no fields are given.
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          caller_id: selectedCaller,
+          transaction_context: selectedContext,
+        }),
       });
-      if (!res.ok) throw new Error(`start-simulation failed: ${res.status}`);
+      if (!res.ok) {
+        // Fallback to legacy endpoint if /api/v1/session/start fails
+        const legacyRes = await fetch(`${API_BASE_URL}/start-simulation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            caller_id: selectedCaller,
+            transaction_context: selectedContext,
+          }),
+        });
+        if (!legacyRes.ok) throw new Error(`start-simulation failed: ${legacyRes.status}`);
+      }
       setSimStatus("running");
     } catch (err) {
       console.error("Failed to start simulation", err);
@@ -126,6 +202,18 @@ export default function Home() {
               />
               {STATUS_LABEL[socketStatus]}
             </span>
+            <Link
+              href="/transparency"
+              className="border border-line px-4 py-2 font-mono text-sm text-muted hover:text-ink transition-colors"
+            >
+              Transparency 📊
+            </Link>
+            <Link
+              href="/settings"
+              className="border border-line px-4 py-2 font-mono text-sm text-muted hover:text-ink transition-colors"
+            >
+              Settings ⚙️
+            </Link>
             <ThemeToggle />
             <button
               onClick={() => signOut()}
@@ -136,56 +224,109 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-3xl font-semibold text-ink md:text-4xl">
+        <div className="mt-6 flex flex-wrap items-end justify-between gap-4 border border-line bg-surface p-5">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-2xl font-semibold text-ink md:text-3xl">
               Active call session
             </h1>
-            <p className="mt-2 text-lg text-muted">
-              Live voice-impersonation risk score, updated per audio chunk.
+            <p className="text-sm text-muted">
+              Configure session enrichment parameters before starting call.
             </p>
           </div>
 
-          {socketStatus === "open" && (
-            <div className="flex gap-3 items-center">
-              <button
-                onClick={handleStartCall}
-                disabled={simStatus === "starting" || simStatus === "running"}
-                className="border border-line bg-surface px-6 py-3 font-mono text-sm font-bold text-ink transition-colors hover:border-ink disabled:opacity-50"
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="font-mono text-xs text-muted uppercase tracking-wider">
+                Known Contact
+              </label>
+              <select
+                value={selectedCaller}
+                onChange={(e) => setSelectedCaller(e.target.value)}
+                disabled={simStatus === "running" || simStatus === "starting"}
+                className="border border-line bg-background px-3 py-2.5 font-mono text-sm text-ink outline-none transition-colors focus:border-ink disabled:opacity-50 min-w-[200px]"
               >
-                {simStatus === "idle" && "Start call"}
-                {simStatus === "starting" && "Starting…"}
-                {simStatus === "running" && "Call running"}
-                {simStatus === "error" && "Failed to start — retry"}
-              </button>
-              
-              {simStatus === "running" && (
-                <button
-                  onClick={async () => {
-                    try {
-                      await fetch(`${API_BASE_URL}/stop-simulation`, { method: "POST" });
-                      setSimStatus("idle");
-                    } catch (e) {
-                      console.error(e);
-                    }
-                  }}
-                  className="border border-risk-high text-risk-high hover:bg-risk-high hover:text-surface px-6 py-3 font-mono text-sm font-bold transition-colors"
-                >
-                  Stop call
-                </button>
-              )}
-              
-              {(hasReceivedData || history.length > 0) && simStatus === "idle" && (
-                <button
-                  onClick={clear}
-                  className="border border-line px-6 py-3 font-mono text-sm font-bold text-muted transition-colors hover:text-ink hover:border-ink"
-                >
-                  Clear data
-                </button>
-              )}
+                {contacts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.role})
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
+
+            <div className="flex flex-col gap-1.5">
+              <label className="font-mono text-xs text-muted uppercase tracking-wider">
+                Transaction Context
+              </label>
+              <select
+                value={selectedContext}
+                onChange={(e) => setSelectedContext(e.target.value)}
+                disabled={simStatus === "running" || simStatus === "starting"}
+                className="border border-line bg-background px-3 py-2.5 font-mono text-sm text-ink outline-none transition-colors focus:border-ink disabled:opacity-50 min-w-[190px]"
+              >
+                <option value="routine">Routine</option>
+                <option value="information_request">Information Request</option>
+                <option value="fund_transfer">Fund Transfer</option>
+              </select>
+            </div>
+
+            {socketStatus === "open" && (
+              <div className="flex gap-3 items-center">
+                <button
+                  onClick={handleStartCall}
+                  disabled={simStatus === "starting" || simStatus === "running"}
+                  className="border border-line bg-ink px-6 py-2.5 font-mono text-sm font-bold text-surface transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {simStatus === "idle" && "Start call"}
+                  {simStatus === "starting" && "Starting…"}
+                  {simStatus === "running" && "Call running"}
+                  {simStatus === "error" && "Failed to start — retry"}
+                </button>
+                
+                {simStatus === "running" && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await fetch(`${API_BASE_URL}/stop-simulation`, { method: "POST" });
+                        setSimStatus("idle");
+                      } catch (e) {
+                        console.error(e);
+                      }
+                    }}
+                    className="border border-risk-high text-risk-high hover:bg-risk-high hover:text-surface px-6 py-2.5 font-mono text-sm font-bold transition-colors"
+                  >
+                    Stop call
+                  </button>
+                )}
+                
+                {(hasReceivedData || history.length > 0) && simStatus === "idle" && (
+                  <button
+                    onClick={clear}
+                    className="border border-line px-6 py-2.5 font-mono text-sm font-bold text-muted transition-colors hover:text-ink hover:border-ink"
+                  >
+                    Clear data
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
+
+        {simStatus === "running" && (
+          <div className="mt-3 flex flex-wrap gap-6 border border-line bg-surface/40 px-4 py-2.5 font-mono text-xs text-muted">
+            <span>
+              Active Caller:{" "}
+              <strong className="text-ink font-semibold">
+                {contacts.find((c) => c.id === selectedCaller)?.name || selectedCaller}
+              </strong>
+            </span>
+            <span>
+              Context:{" "}
+              <strong className="text-ink font-semibold uppercase">
+                {selectedContext.replace("_", " ")}
+              </strong>
+            </span>
+          </div>
+        )}
 
         <div className="mt-6 grid gap-5 lg:grid-cols-12">
           <section className="flex flex-col gap-5 lg:col-span-7">
@@ -198,6 +339,15 @@ export default function Home() {
           </section>
 
           <section className="flex flex-col gap-5 lg:col-span-5">
+            <IdentityBadge
+              drift={
+                latest
+                  ? latest.identity_drift ??
+                    (MOCK_PROSODY_DRIFT_ENABLED ? getMockIdentityDrift(latest.chunk_id) : 0)
+                  : 0
+              }
+              active={hasReceivedData}
+            />
             <AlertBanner
               alertLevel={latest?.alert_level ?? "low"}
               flags={latest?.flags ?? []}
@@ -218,6 +368,24 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      <AlertToast
+        alertLevel={latest?.alert_level ?? "low"}
+        chunkId={latest?.chunk_id}
+        flags={latest?.flags ?? []}
+      />
+
+      <PreTransactionModal
+        isOpen={showModalOverride || warning !== null}
+        reason={warning?.reason}
+        recommendedActions={warning?.recommended_actions}
+        onActionSelect={(action) => {
+          console.log(`User triggered secondary verification action: ${action}`);
+          setShowModalOverride(false);
+          setModalHandled(true);
+          clearWarning();
+        }}
+      />
     </main>
   );
 }
