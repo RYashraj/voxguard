@@ -20,30 +20,34 @@ interface RiskTrendProps {
   history: RiskUpdate[];
 }
 
+import { useMemo, memo } from "react";
+
 function levelColor(score: number) {
   if (score > 0.7) return "var(--risk-high)";
   if (score > 0.4) return "var(--risk-medium)";
   return "var(--risk-low)";
 }
 
-export default function RiskTrend({ history }: RiskTrendProps) {
-  const data = history.map((u, i) => {
-    // Mock fallback (feature-flagged) prosody & identity_drift if the WS
-    // payload didn't include them yet — see lib/mockSignals.ts.
-    const prosodyVal =
-      u.prosody_score ?? (MOCK_PROSODY_DRIFT_ENABLED ? getMockProsodyScore(u.chunk_id) : 0);
+const RiskTrend = memo(function RiskTrend({ history }: RiskTrendProps) {
+  const data = useMemo(() => {
+    return history.map((u, i) => {
+      // Mock fallback (feature-flagged) prosody & identity_drift if the WS
+      // payload didn't include them yet — see lib/mockSignals.ts.
+      const prosodyVal =
+        u.prosody_score ?? (MOCK_PROSODY_DRIFT_ENABLED ? getMockProsodyScore(u.chunk_id) : 0);
 
-    const driftVal =
-      u.identity_drift ?? (MOCK_PROSODY_DRIFT_ENABLED ? getMockIdentityDrift(u.chunk_id) : 0);
+      const driftVal =
+        u.identity_drift ?? (MOCK_PROSODY_DRIFT_ENABLED ? getMockIdentityDrift(u.chunk_id) : 0);
 
-    return {
-      index: i,
-      score: Math.round(u.rolling_risk_score * 100),
-      prosody: Math.round(prosodyVal * 100),
-      drift: Math.round(driftVal * 100),
-      chunkId: u.chunk_id,
-    };
-  });
+      return {
+        index: i,
+        score: Math.round(u.rolling_risk_score * 100),
+        prosody: Math.round(prosodyVal * 100),
+        drift: Math.round(driftVal * 100),
+        chunkId: u.chunk_id,
+      };
+    });
+  }, [history]);
 
   const current = data.at(-1);
   const lineColor = current ? levelColor(current.score / 100) : "var(--muted)";
@@ -139,4 +143,6 @@ export default function RiskTrend({ history }: RiskTrendProps) {
       </div>
     </div>
   );
-}
+});
+
+export default RiskTrend;

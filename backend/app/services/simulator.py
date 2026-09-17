@@ -141,10 +141,12 @@ async def simulate_call(
         # 2. Feed score into RollingRiskAggregator & create RiskUpdate
         update = aggregator.create_risk_update(
             chunk_id=chunk["chunk_id"],
-            chunk_score=analysis["chunk_score"],
-            confidence=analysis["confidence"],
-            flags=analysis["flags"],
-            timestamp=datetime.now(timezone.utc).isoformat()
+            chunk_score=analysis.get("chunk_score", 0.5),
+            confidence=analysis.get("confidence", 0.0),
+            flags=analysis.get("flags", []),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            prosody_score=analysis.get("prosody_score"),
+            identity_drift=analysis.get("identity_drift")
         )
 
         # 3. Log chunk record into SQLite safely

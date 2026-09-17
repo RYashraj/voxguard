@@ -49,7 +49,7 @@ export default function AlertBanner({ alertLevel, flags = [] }: AlertBannerProps
 
         {isHigh && (
           <button
-            onClick={() => console.log("Secondary verification triggered")}
+            onClick={() => {}}
             className="shrink-0 border px-4 py-2 text-base font-bold transition-colors"
             style={{ borderColor: color, color }}
             onMouseEnter={(e) => {

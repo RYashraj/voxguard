@@ -11,3 +11,5 @@ torch>=2.0.0
 torchaudio>=2.0.0
 transformers>=4.30.0
 huggingface_hub>=0.16.0
+librosa>=1.0.0
+soundfile>=0.12.0

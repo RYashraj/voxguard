@@ -25,7 +25,7 @@ export default function PreTransactionModal({
 
   function handleChoice(action: string) {
     setSelectedAction(action);
-    console.log(`[PreTransactionModal] User selected action: "${action}"`);
+    // Secondary verification action handler
     setTimeout(() => {
       onActionSelect(action);
       setSelectedAction(null);

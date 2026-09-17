@@ -380,7 +380,7 @@ export default function Home() {
         reason={warning?.reason}
         recommendedActions={warning?.recommended_actions}
         onActionSelect={(action) => {
-          console.log(`User triggered secondary verification action: ${action}`);
+          // User triggered secondary verification action
           setShowModalOverride(false);
           setModalHandled(true);
           clearWarning();

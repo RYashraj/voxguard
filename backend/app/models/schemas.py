@@ -24,6 +24,11 @@ class RiskUpdate(BaseModel):
         ...,
         description="Threat level based on risk thresholds: low (<0.4), medium (0.4-0.7), high (>0.7)"
     )
+    prosody_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Prosody anomaly score")
+    identity_drift: Optional[float] = Field(None, ge=0.0, le=1.0, description="Identity drift score")
+    transaction_context: Optional[str] = Field(None, description="Transaction context")
+    known_contact: Optional[str] = Field(None, description="Known contact caller id")
+    alert_reason: Optional[str] = Field(None, description="Reason for high alert")
 
     model_config = {
         "json_schema_extra": {

@@ -5,6 +5,14 @@ import math
 import struct
 import logging
 import threading
+import sys
+import tempfile
+from pathlib import Path
+
+# Add ml folder to path to allow importing ML modules
+_ml_dir = Path(__file__).resolve().parent.parent.parent.parent / "ml"
+if str(_ml_dir) not in sys.path:
+    sys.path.append(str(_ml_dir))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("VoxGuard.ML")
@@ -228,6 +236,23 @@ def get_detector() -> SpectraAASISTDetector:
                 _MODEL_INSTANCE = SpectraAASISTDetector()
     return _MODEL_INSTANCE
 
+_IDENTITY_TRACKER = None
+_IDENTITY_LOCK = threading.Lock()
+
+def get_identity_tracker(audio_path: str):
+    global _IDENTITY_TRACKER
+    if _IDENTITY_TRACKER is None:
+        with _IDENTITY_LOCK:
+            if _IDENTITY_TRACKER is None:
+                try:
+                    from identity_tracker import SessionIdentityTracker
+                    from speaker_test import get_embedding
+                    emb = get_embedding(audio_path)
+                    _IDENTITY_TRACKER = SessionIdentityTracker(emb)
+                except Exception as e:
+                    logger.error(f"Failed to initialize identity tracker: {e}")
+    return _IDENTITY_TRACKER
+
 
 def analyze_chunk(audio_bytes: bytes) -> dict:
     """
@@ -240,15 +265,57 @@ def analyze_chunk(audio_bytes: bytes) -> dict:
         return {
             "chunk_score": 0.5,
             "confidence": 0.0,
-            "flags": ["invalid_audio"]
+            "flags": ["invalid_audio"],
+            "prosody_score": None,
+            "identity_drift": None
         }
 
     if "silent_audio" in flags:
         return {
             "chunk_score": 0.5,
             "confidence": 0.1,
-            "flags": sorted(list(set(flags)))
+            "flags": sorted(list(set(flags))),
+            "prosody_score": None,
+            "identity_drift": None
         }
 
     detector = get_detector()
-    return detector.predict_parsed(audio, rms_energy, flags)
+    result = detector.predict_parsed(audio, rms_energy, flags)
+    result["prosody_score"] = None
+    result["identity_drift"] = None
+    
+    # Fallback to temp file for librosa / PyTorch audio loaders in ML modules
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+            
+        try:
+            from prosody_score import prosody_score
+            p_res = prosody_score(tmp_path)
+            val = p_res.get("prosody_score", 0.0)
+            result["prosody_score"] = round(val / 100.0, 4) if val > 1.0 else round(val, 4)
+        except Exception as e:
+            logger.error(f"Prosody score failed: {e}")
+            result["flags"].append("prosody_error")
+
+        try:
+            tracker = get_identity_tracker(tmp_path)
+            if tracker is not None:
+                sim, drift = tracker.compare(tmp_path)
+                result["identity_drift"] = round(drift, 4)
+        except Exception as e:
+            logger.error(f"Identity drift failed: {e}")
+            result["flags"].append("identity_error")
+
+    except Exception as e:
+        logger.error(f"Failed to process secondary signals: {e}")
+    finally:
+        if 'tmp_path' in locals() and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except:
+                pass
+
+    result["flags"] = sorted(list(set(result["flags"])))
+    return result

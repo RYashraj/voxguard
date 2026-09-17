@@ -107,6 +107,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"SQLite DB startup initialization error: {e}")
 
+    try:
+        from app.ml.ml_model import get_detector
+        logger.info("Pre-loading SpectraAASISTDetector ML model weights...")
+        get_detector()
+        logger.info("ML model weights pre-loaded successfully.")
+    except Exception as e:
+        logger.error(f"ML model preload failed: {e}")
+
     yield
     logger.info("Shutting down VoxGuard Backend...")
     sim_runner.stop()
@@ -137,6 +145,19 @@ app.add_middleware(
 )
 
 DEMO_HTML_PATH = Path(__file__).parent / "templates" / "demo.html"
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    logger.warning(f"Malformed input (ValueError): {exc}")
+    return JSONResponse(status_code=400, content={"detail": "Invalid Input", "message": str(exc)})
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "message": str(exc)})
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

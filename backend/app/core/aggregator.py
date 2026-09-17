@@ -21,6 +21,10 @@ class RollingRiskAggregator:
         self.current_rolling_score: float = 0.0
         self.current_alert_level: Literal["low", "medium", "high"] = "low"
         self.total_chunks_processed: int = 0
+        
+        # Precompute weights for O(1) lookup
+        self._weights = {i: list(range(1, i + 1)) for i in range(1, window_size + 1)}
+        self._weight_sums = {i: sum(self._weights[i]) for i in range(1, window_size + 1)}
 
     def update(self, chunk_score: float, flags: Optional[List[str]] = None) -> float:
         """
@@ -34,12 +38,14 @@ class RollingRiskAggregator:
         self.flag_history.append(flags or [])
         self.total_chunks_processed += 1
 
-        # Calculate linearly weighted average over available window items
-        # Weights: for k items, weights are 1, 2, ..., k (recent chunks weighted highest)
         n = len(self.scores)
-        weights = list(range(1, n + 1))  # e.g., for 5 items: [1, 2, 3, 4, 5], sum=15
-        total_weight = sum(weights)
+        if n == 0:
+            return 0.0
+            
+        weights = self._weights[n]
+        total_weight = self._weight_sums[n]
         
+        # Generator expression sum is fast for small n
         weighted_sum = sum(w * s for w, s in zip(weights, self.scores))
         self.current_rolling_score = round(weighted_sum / total_weight, 4)
 
@@ -91,7 +97,8 @@ class RollingRiskAggregator:
         chunk_score: float,
         confidence: float = 0.95,
         flags: Optional[List[str]] = None,
-        timestamp: Optional[str] = None
+        timestamp: Optional[str] = None,
+        **kwargs
     ) -> RiskUpdate:
         """
         Helper method to process a new chunk score and generate a valid RiskUpdate Pydantic model.
@@ -105,5 +112,6 @@ class RollingRiskAggregator:
             rolling_risk_score=rolling_score,
             confidence=round(confidence, 4),
             flags=flags or [],
-            alert_level=self.get_alert_level()
+            alert_level=self.get_alert_level(),
+            **kwargs
         )
