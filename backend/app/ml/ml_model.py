@@ -82,7 +82,7 @@ def parse_audio_bytes(audio_bytes: bytes):
                 repeats = int(np.ceil(REQUIRED_SAMPLES / len(original_audio)))
                 spectra_audio = np.tile(original_audio, repeats)[:REQUIRED_SAMPLES]
             else:
-                spectra_audio = original_audio
+                spectra_audio = original_audio[:REQUIRED_SAMPLES]
 
             return original_audio, spectra_audio, rms_energy, flags
 

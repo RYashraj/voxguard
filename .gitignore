@@ -31,5 +31,6 @@ backend/data/*.sqlite
 backend/data/*.db-wal
 backend/data/*.db-shm
 backend/data/benchmark_speaker_calibration/**/*.wav
+backend/data/benchmark_indic_language/*.wav
 
 
