@@ -4,6 +4,10 @@
 
 The VoxGuard Prosody & Behavioural Analysis Layer (`backend/app/ml/prosody.py`) extracts explainable acoustic prosody features from live streaming audio chunks (typically 3.0 seconds). It replaces previous score-threshold-generated flags with true, measured acoustic prosody signals.
 
+> [!IMPORTANT]
+> **Pre-Padding Prosody Feature Extraction**:
+> Prosody features are calculated directly on the normalized/resampled `original_audio` waveform **BEFORE** any tiling/padding to Spectra-AASIST3's required 64,600-sample input length. This guarantees that short audio chunks (< 4.0s) evaluate true chunk duration, pause duration ratios, voiced ratios, and pitch variability without distortion from artificially repeated speech.
+
 ---
 
 ## Extracted Features & Calculation Methodology

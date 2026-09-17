@@ -23,12 +23,13 @@ REQUIRED_SAMPLES = 64600  # ~4 seconds required by Spectra-AASIST3
 
 def parse_audio_bytes(audio_bytes: bytes):
     """
-    Parses 16kHz WAV audio bytes and returns (audio_data, rms_energy, flags).
-    Handles empty, corrupted, multi-channel, non-16kHz, and silent/short audio safely.
+    Parses 16kHz WAV audio bytes and returns (original_audio, spectra_audio, rms_energy, flags).
+    Preserves original_audio for prosody extraction and produces spectra_audio (tiled to 64,600 samples)
+    specifically for Spectra-AASIST3 inference when short_audio is detected.
     Does NOT require model initialization.
     """
     if not audio_bytes or len(audio_bytes) < 44:
-        return None, 0.0, ["invalid_audio"]
+        return None, None, 0.0, ["invalid_audio"]
 
     try:
         with wave.open(io.BytesIO(audio_bytes), "rb") as wav:
@@ -38,16 +39,16 @@ def parse_audio_bytes(audio_bytes: bytes):
             n_frames = wav.getnframes()
 
             if n_frames == 0:
-                return None, 0.0, ["invalid_audio"]
+                return None, None, 0.0, ["invalid_audio"]
 
             frames = wav.readframes(n_frames)
 
         if sample_width != 2:
-            return None, 0.0, ["invalid_audio"]
+            return None, None, 0.0, ["invalid_audio"]
 
         total_samples = len(frames) // 2
         if total_samples == 0:
-            return None, 0.0, ["invalid_audio"]
+            return None, None, 0.0, ["invalid_audio"]
 
         if HAS_NUMPY:
             audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
@@ -67,18 +68,21 @@ def parse_audio_bytes(audio_bytes: bytes):
                     new_indices = np.linspace(0, len(audio) - 1, num=new_len)
                     audio = np.interp(new_indices, old_indices, audio).astype(np.float32)
 
-            rms_energy = float(np.sqrt(np.mean(audio ** 2)))
+            original_audio = audio
+            rms_energy = float(np.sqrt(np.mean(original_audio ** 2)))
             flags = []
 
             if rms_energy < 0.001:
                 flags.append("silent_audio")
 
-            if len(audio) < REQUIRED_SAMPLES:
+            if len(original_audio) < REQUIRED_SAMPLES:
                 flags.append("short_audio")
-                repeats = int(np.ceil(REQUIRED_SAMPLES / len(audio)))
-                audio = np.tile(audio, repeats)[:REQUIRED_SAMPLES]
+                repeats = int(np.ceil(REQUIRED_SAMPLES / len(original_audio)))
+                spectra_audio = np.tile(original_audio, repeats)[:REQUIRED_SAMPLES]
+            else:
+                spectra_audio = original_audio
 
-            return audio, rms_energy, flags
+            return original_audio, spectra_audio, rms_energy, flags
 
         else:
             raw_samples = struct.unpack(f"<{total_samples}h", frames)
@@ -92,25 +96,29 @@ def parse_audio_bytes(audio_bytes: bytes):
 
             audio = [s / 32768.0 for s in mono_samples]
             if not audio:
-                return None, 0.0, ["invalid_audio"]
+                return None, None, 0.0, ["invalid_audio"]
 
-            sq_sum = sum(s * s for s in audio)
-            rms_energy = math.sqrt(sq_sum / len(audio))
+            original_audio = audio
+            sq_sum = sum(s * s for s in original_audio)
+            rms_energy = math.sqrt(sq_sum / len(original_audio))
             flags = []
 
             if rms_energy < 0.001:
                 flags.append("silent_audio")
 
-            if len(audio) < REQUIRED_SAMPLES:
+            if len(original_audio) < REQUIRED_SAMPLES:
                 flags.append("short_audio")
-                repeats = int(math.ceil(REQUIRED_SAMPLES / len(audio)))
-                audio = (audio * repeats)[:REQUIRED_SAMPLES]
+                repeats = int(math.ceil(REQUIRED_SAMPLES / len(original_audio)))
+                spectra_audio = (original_audio * repeats)[:REQUIRED_SAMPLES]
+            else:
+                spectra_audio = original_audio
 
-            return audio, rms_energy, flags
+            return original_audio, spectra_audio, rms_energy, flags
 
     except Exception as e:
         logger.debug(f"WAV parse error: {e}")
-        return None, 0.0, ["invalid_audio"]
+        return None, None, 0.0, ["invalid_audio"]
+
 
 
 class SpectraAASISTDetector:
@@ -162,18 +170,28 @@ class SpectraAASISTDetector:
             self.load_error = err_type
             logger.error("model_load_error: Spectra-AASIST3 model failed to load (%s)", err_type)
 
-    def predict_parsed(self, audio, rms_energy: float, flags: list) -> dict:
+    def predict_parsed(self, audio, rms_energy: float, flags: list, spectra_audio=None) -> dict:
         """
-        Runs model inference on pre-parsed, valid, non-silent audio.
+        Runs model inference and prosody extraction on pre-parsed, valid, non-silent audio.
         Uses _inference_lock to prevent simultaneous concurrent forward passes on shared model tensors.
-        Spectra-AASIST3 Class Mapping:
-          Class 0 = Spoof / AI-generated (high chunk_score)
-          Class 1 = Bona-fide / Human (low chunk_score)
+        - audio: original_audio (normalized/resampled original chunk used for prosody analysis).
+        - spectra_audio: tiled/padded waveform (64,600 samples) used ONLY for Spectra-AASIST3 inference.
         """
-        # Safely run prosody extraction on pre-parsed 16kHz audio
+        original_audio = audio
+        if spectra_audio is None:
+            if HAS_NUMPY and isinstance(original_audio, np.ndarray):
+                if len(original_audio) < REQUIRED_SAMPLES and len(original_audio) > 0:
+                    repeats = int(np.ceil(REQUIRED_SAMPLES / len(original_audio)))
+                    spectra_audio = np.tile(original_audio, repeats)[:REQUIRED_SAMPLES]
+                else:
+                    spectra_audio = original_audio
+            else:
+                spectra_audio = original_audio
+
+        # Safely run prosody extraction on UNTILED original_audio
         prosody_flags = []
         try:
-            p_features = extract_prosody_features(audio, sample_rate=SAMPLE_RATE)
+            p_features = extract_prosody_features(original_audio, sample_rate=SAMPLE_RATE)
             p_eval = assess_prosody(p_features)
             prosody_flags = p_eval.get("flags", [])
         except Exception as p_err:
@@ -190,7 +208,8 @@ class SpectraAASISTDetector:
 
         try:
             import torch
-            waveform = torch.tensor(audio, dtype=torch.float32).unsqueeze(0)
+            # Run Spectra model inference on TILED spectra_audio ONLY
+            waveform = torch.tensor(spectra_audio, dtype=torch.float32).unsqueeze(0)
 
             # Concurrency Guard: Protect shared model forward pass from race conditions
             with self._inference_lock:
@@ -248,7 +267,7 @@ def analyze_chunk(audio_bytes: bytes) -> dict:
     Standard interface function expected by backend stream processor.
     Validates audio BEFORE calling get_detector() or initializing the model.
     """
-    audio, rms_energy, flags = parse_audio_bytes(audio_bytes)
+    original_audio, spectra_audio, rms_energy, flags = parse_audio_bytes(audio_bytes)
 
     if "invalid_audio" in flags:
         return {
@@ -265,4 +284,10 @@ def analyze_chunk(audio_bytes: bytes) -> dict:
         }
 
     detector = get_detector()
-    return detector.predict_parsed(audio, rms_energy, flags)
+    return detector.predict_parsed(
+        audio=original_audio,
+        rms_energy=rms_energy,
+        flags=flags,
+        spectra_audio=spectra_audio
+    )
+

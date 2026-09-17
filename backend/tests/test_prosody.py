@@ -239,6 +239,64 @@ class TestProsodyAnalysisModule(unittest.TestCase):
         expected_fields = {"chunk_id", "timestamp", "chunk_score", "rolling_risk_score", "confidence", "flags", "alert_level"}
         self.assertEqual(set(data.keys()), expected_fields)
 
+    def test_short_chunk_prosody_untiled_vs_spectra_padded(self):
+
+        """
+        Regression test: Verify short audio chunks preserve original duration for prosody
+        while providing tiled/padded waveform to Spectra-AASIST3.
+        """
+        from app.ml.ml_model import parse_audio_bytes, REQUIRED_SAMPLES
+
+        # 1.5s short chunk (24,000 samples) with 0.5s tone, 0.5s pause, 0.5s tone
+        short_wav = _generate_wav_bytes(
+            duration_sec=1.5,
+            frequency_func=lambda t: 220.0,
+            amplitude=0.5,
+            pause_segments=[(0.5, 1.0)]
+        )
+
+        original_audio, spectra_audio, rms_energy, flags = parse_audio_bytes(short_wav)
+
+        # Assert two separate waveforms preserved
+        self.assertEqual(len(original_audio), 24000)
+        self.assertEqual(len(spectra_audio), REQUIRED_SAMPLES)
+        self.assertIn("short_audio", flags)
+
+        # Verify prosody features extracted from untiled original_audio
+        p_features_orig = extract_prosody_features(original_audio, sample_rate=16000)
+        self.assertEqual(p_features_orig["duration_sec"], 1.5)
+        # Pause duration ratio is ~0.33 (0.5s pause out of 1.5s)
+        self.assertAlmostEqual(p_features_orig["pause_duration_ratio"], 0.33, delta=0.08)
+
+        # Contrast with tiled spectra_audio (demonstrating why prosody must NOT use tiled audio)
+        p_features_tiled = extract_prosody_features(spectra_audio, sample_rate=16000)
+        self.assertGreater(p_features_tiled["duration_sec"], 4.0)
+
+        # Verify predict_parsed receives original_audio for prosody and spectra_audio for model
+        detector = SpectraAASISTDetector.__new__(SpectraAASISTDetector)
+        detector.is_loaded = True
+        detector._inference_lock = MagicMock()
+        detector.model = MagicMock()
+        
+        import torch
+        mock_output = MagicMock()
+        mock_output.logits = torch.tensor([[0.1, 0.5]])
+        detector.model.return_value = mock_output
+
+        with patch("app.ml.ml_model.extract_prosody_features", wraps=extract_prosody_features) as mock_p_extract:
+            res = detector.predict_parsed(
+                audio=original_audio,
+                rms_energy=rms_energy,
+                flags=flags,
+                spectra_audio=spectra_audio
+            )
+            # Verify extract_prosody_features was called with untiled original_audio (len 24000)
+            mock_p_extract.assert_called_once()
+            called_audio = mock_p_extract.call_args[0][0]
+            self.assertEqual(len(called_audio), 24000)
+            self.assertIn("short_audio", res["flags"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

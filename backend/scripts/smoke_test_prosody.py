@@ -2,6 +2,11 @@
 VoxGuard Direct Prosody Analysis Smoke Test
 
 Runs prosody feature extraction and anomaly assessment on project audio files.
+
+DISCLAIMER:
+Generated synthetic tones are used strictly to validate mathematical feature extraction logic.
+They do NOT represent normal human prosody or natural human speech.
+An optional path can be passed to evaluate consented real-speech WAV files.
 """
 
 import os
@@ -17,12 +22,26 @@ from app.utils.audio_generator import ensure_default_sample_audio
 
 
 def run_smoke_test():
-    audio_path = os.path.join("data", "sample_calls", "demo_call.wav")
-    if not os.path.exists(audio_path):
-        audio_path = ensure_default_sample_audio()
+    # Support optional consented real-speech WAV file passed via CLI argument
+    if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+        audio_path = sys.argv[1]
+        source_desc = f"User-provided consented real-speech WAV: {audio_path}"
+    else:
+        # Check for optional consented real speech sample file in data directory
+        consented_sample = os.path.join("data", "sample_calls", "consented_real_speech.wav")
+        if os.path.exists(consented_sample):
+            audio_path = consented_sample
+            source_desc = f"Consented real-speech WAV sample: {audio_path}"
+        else:
+            default_demo = os.path.join("data", "sample_calls", "demo_call.wav")
+            if os.path.exists(default_demo):
+                audio_path = default_demo
+            else:
+                audio_path = ensure_default_sample_audio()
+            source_desc = f"Generated synthetic test audio ({audio_path}) — Note: Used ONLY for mathematical extraction validation; NOT classified as normal human speech."
 
     print(f"=== VoxGuard Prosody Analysis Smoke Test ===")
-    print(f"Target audio file: {audio_path}")
+    print(f"Target Audio Source: {source_desc}\n")
     
     if not os.path.exists(audio_path):
         print(f"ERROR: Audio file not found at {audio_path}")
