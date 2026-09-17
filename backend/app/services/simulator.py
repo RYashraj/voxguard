@@ -124,16 +124,15 @@ async def simulate_call(
 
     # In-memory speaker identity tracker for session
     identity_tracker = None
-    if reference_audio_path and os.path.exists(reference_audio_path):
-        try:
-            with open(reference_audio_path, "rb") as ref_f:
-                ref_bytes = ref_f.read()
-            identity_tracker = SessionIdentityTracker(session_id=current_session_id)
-            enroll_res = identity_tracker.enroll_reference(ref_bytes)
+    if reference_audio_path:
+        identity_tracker = SessionIdentityTracker(session_id=current_session_id)
+        enroll_res = identity_tracker.enroll_reference_path(reference_audio_path)
+        if enroll_res.get("status") == "ok":
             logger.info(f"[{current_session_id}] Identity tracker reference enrollment: {enroll_res}")
-        except Exception as e:
-            logger.warning(f"[{current_session_id}] Failed to enroll reference audio: {e}")
+        else:
+            logger.warning(f"[{current_session_id}] Reference enrollment rejected: {enroll_res}")
             identity_tracker = None
+
 
     try:
         for idx, chunk in enumerate(chunks):

@@ -9,6 +9,7 @@ PRIVACY & CONSENT RULES:
 2. Raw reference audio and speaker embeddings are stored ONLY IN MEMORY during active call sessions.
 3. Reference audio and embeddings are NEVER persisted in SQLite databases or disk logs.
 4. Reference state is completely wiped from memory when the session ends or stops.
+5. Local demo reference audio paths MUST resolve strictly within 'backend/data/consented_reference_audio/'.
 
 SECURITY DISCLAIMER:
 Speaker verification detects speaker mismatches (identity drift), but does NOT prove whether speech is synthetic.
@@ -16,6 +17,7 @@ A speaker mismatch can occur due to legitimate co-callers, handoffs, background 
 Prosody and Spectra acoustic anti-spoofing serve as independent signals.
 """
 
+import os
 import io
 import wave
 import logging
@@ -33,14 +35,71 @@ except ImportError:
 
 
 # INITIAL UNCALIBRATED HEURISTIC THRESHOLDS FOR IDENTITY DRIFT
-# WARNING: Baseline heuristics for demo purposes; not clinically or legally calibrated.
+# WARNING: The current mismatch threshold (0.45) is an initial baseline demo heuristic.
+# It MUST be calibrated against real same-speaker and different-speaker measurements before operational use.
 IDENTITY_MISMATCH_DRIFT_THRESHOLD = 0.45  # Identity drift > 0.45 indicates speaker mismatch
 MIN_VOICED_AUDIO_DURATION_SEC = 0.5      # Minimum audio duration required for reliable embedding
 DEFAULT_SAMPLE_RATE = 16000
 
 
+def validate_consented_reference_path(raw_path: str) -> Tuple[bool, str, Optional[str]]:
+    """
+    Validates that reference_audio_path is a valid local-demo WAV file inside
+    'backend/data/consented_reference_audio/'.
+    Rejects path traversal, outside paths, non-WAV extensions, missing files, and invalid WAV headers.
+    
+    Returns: (is_valid, reason_message, resolved_absolute_path_or_None)
+    """
+    if not raw_path:
+        return False, "missing_reference_path", None
+
+    try:
+        # Determine canonical backend base directory
+        backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        allowed_dir = os.path.abspath(os.path.join(backend_dir, "data", "consented_reference_audio"))
+        os.makedirs(allowed_dir, exist_ok=True)
+
+        # Resolve target path canonically
+        if os.path.isabs(raw_path):
+            resolved_path = os.path.abspath(raw_path)
+        else:
+            resolved_path = os.path.abspath(os.path.join(backend_dir, raw_path))
+
+        # Check path containment under allowed_dir (prevents path traversal)
+        try:
+            rel = os.path.relpath(resolved_path, allowed_dir)
+            if rel.startswith("..") or os.path.isabs(rel):
+                return False, "path_outside_allowed_directory", None
+        except Exception:
+            return False, "path_outside_allowed_directory", None
+
+        # Check extension
+        if not resolved_path.lower().endswith(".wav"):
+            return False, "invalid_file_extension_must_be_wav", None
+
+        # Check existence
+        if not os.path.exists(resolved_path) or not os.path.isfile(resolved_path):
+            return False, "reference_file_not_found", None
+
+        # Validate WAV header
+        try:
+            with wave.open(resolved_path, "rb") as wav_file:
+                n_channels = wav_file.getnchannels()
+                sampwidth = wav_file.getsampwidth()
+                n_frames = wav_file.getnframes()
+                if n_frames == 0 or sampwidth != 2:
+                    return False, "invalid_wav_header_or_sample_format", None
+        except Exception:
+            return False, "corrupted_or_invalid_wav_header", None
+
+        return True, "valid", resolved_path
+
+    except Exception as e:
+        return False, f"path_validation_error: {type(e).__name__}", None
+
+
 def _cosine_similarity(emb1: Any, emb2: Any) -> float:
-    """Computes cosine similarity between two 1D embedding vectors."""
+    """Computes cosine similarity between two 1D embedding vectors (-1.0 to 1.0)."""
     norm1 = np.linalg.norm(emb1)
     norm2 = np.linalg.norm(emb2)
     if norm1 == 0 or norm2 == 0:
@@ -134,10 +193,28 @@ class SessionIdentityTracker:
         self.is_enrolled: bool = False
         self._lock = threading.Lock()
 
+    def enroll_reference_path(self, raw_path: str, sample_rate: int = DEFAULT_SAMPLE_RATE) -> dict:
+        """
+        Enrolls reference audio from a local path after validating directory safety.
+        Reads file bytes in-memory and discards raw audio after embedding computation.
+        """
+        is_valid, reason, resolved_path = validate_consented_reference_path(raw_path)
+        if not is_valid:
+            logger.warning("Session %s: Rejected reference path '%s': %s", self.session_id, raw_path, reason)
+            return {"status": "reference_unavailable", "message": reason}
+
+        try:
+            with open(resolved_path, "rb") as f:
+                ref_bytes = f.read()
+            return self.enroll_reference(ref_bytes, sample_rate=sample_rate)
+        except Exception as e:
+            logger.error("Session %s: Error reading reference audio file: %s", self.session_id, e)
+            return {"status": "reference_unavailable", "message": f"read_error: {type(e).__name__}"}
+
     def enroll_reference(self, reference_input: Union[bytes, Any, List[float]], sample_rate: int = DEFAULT_SAMPLE_RATE) -> dict:
         """
         Enrolls a consented reference audio sample for this session.
-        Computes and stores ONLY an in-memory 1D embedding vector.
+        Computes and stores ONLY an in-memory 1D embedding vector. Raw audio is never persisted.
         """
         with self._lock:
             if not HAS_NUMPY:
@@ -173,11 +250,12 @@ class SessionIdentityTracker:
     def verify_chunk(self, chunk_input: Union[bytes, Any, List[float]], sample_rate: int = DEFAULT_SAMPLE_RATE) -> dict:
         """
         Verifies an ongoing audio chunk against the enrolled in-memory reference embedding.
-        Returns speaker_similarity, identity_drift, confidence, status, and flags.
+        Returns raw_cosine_similarity, speaker_similarity (bounded 0.0-1.0), identity_drift, confidence, status, and flags.
         """
         with self._lock:
             if not self.is_enrolled or self.reference_embedding is None:
                 return {
+                    "raw_cosine_similarity": 0.0,
                     "speaker_similarity": 0.0,
                     "identity_drift": 0.0,
                     "confidence": 0.0,
@@ -187,6 +265,7 @@ class SessionIdentityTracker:
 
             if not HAS_NUMPY:
                 return {
+                    "raw_cosine_similarity": 0.0,
                     "speaker_similarity": 0.0,
                     "identity_drift": 0.0,
                     "confidence": 0.0,
@@ -197,6 +276,7 @@ class SessionIdentityTracker:
             audio = self._parse_to_float_array(chunk_input, sample_rate)
             if audio is None or len(audio) == 0:
                 return {
+                    "raw_cosine_similarity": 0.0,
                     "speaker_similarity": 0.0,
                     "identity_drift": 0.0,
                     "confidence": 0.0,
@@ -207,6 +287,7 @@ class SessionIdentityTracker:
             rms_energy = float(np.sqrt(np.mean(audio ** 2)))
             if rms_energy < 0.001:
                 return {
+                    "raw_cosine_similarity": 0.0,
                     "speaker_similarity": 0.0,
                     "identity_drift": 0.0,
                     "confidence": 0.0,
@@ -217,6 +298,7 @@ class SessionIdentityTracker:
             duration_sec = len(audio) / sample_rate
             if duration_sec < MIN_VOICED_AUDIO_DURATION_SEC:
                 return {
+                    "raw_cosine_similarity": 0.0,
                     "speaker_similarity": 0.0,
                     "identity_drift": 0.0,
                     "confidence": 0.0,
@@ -232,6 +314,7 @@ class SessionIdentityTracker:
 
             if chunk_emb is None:
                 return {
+                    "raw_cosine_similarity": 0.0,
                     "speaker_similarity": 0.0,
                     "identity_drift": 0.0,
                     "confidence": 0.0,
@@ -241,6 +324,7 @@ class SessionIdentityTracker:
 
             chunk_emb_np = np.asarray(chunk_emb, dtype=np.float32)
             cos_sim = _cosine_similarity(self.reference_embedding, chunk_emb_np)
+            raw_cosine_similarity = round(float(cos_sim), 4)
             speaker_similarity = round(max(0.0, min(1.0, (cos_sim + 1.0) / 2.0)), 4)
             identity_drift = round(max(0.0, min(1.0, 1.0 - speaker_similarity)), 4)
             confidence = 0.85
@@ -250,6 +334,7 @@ class SessionIdentityTracker:
                 flags.append("identity_mismatch")
 
             return {
+                "raw_cosine_similarity": raw_cosine_similarity,
                 "speaker_similarity": speaker_similarity,
                 "identity_drift": identity_drift,
                 "confidence": confidence,

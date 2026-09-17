@@ -163,6 +163,65 @@ class TestSpeakerVerificationModule(unittest.TestCase):
         self.assertEqual(eval_short["status"], "insufficient_speech")
         self.assertEqual(eval_short["identity_drift"], 0.0)
 
+    def test_reference_path_validation_and_rejection(self):
+        """Verify strict path validation for consented_reference_audio directory."""
+        from app.ml.speaker_verification import validate_consented_reference_path
+
+        # 1. Path traversal attempt
+        ok, reason, _ = validate_consented_reference_path("../../backend/main.py")
+        self.assertFalse(ok)
+        self.assertIn("path_outside_allowed_directory", reason)
+
+        # 2. Outside absolute path
+        ok, reason, _ = validate_consented_reference_path("C:/Windows/System32/cmd.exe")
+        self.assertFalse(ok)
+        self.assertIn("path_outside_allowed_directory", reason)
+
+        # 3. Non-WAV file extension inside allowed dir
+        ok, reason, _ = validate_consented_reference_path("data/consented_reference_audio/.gitkeep")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "invalid_file_extension_must_be_wav")
+
+        # 4. Missing WAV file inside allowed dir
+        ok, reason, _ = validate_consented_reference_path("data/consented_reference_audio/non_existent.wav")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "reference_file_not_found")
+
+    def test_similarity_and_drift_bounds_math(self):
+        """Verify raw_cosine_similarity, speaker_similarity, and identity_drift bounds."""
+        mock_model = MockSpeakerModel()
+        
+        # Test exact cosine sim 1.0 (same vector)
+        vec1 = np.ones(128, dtype=np.float32) / np.sqrt(128)
+        mock_model.compute_embedding = MagicMock(side_effect=[vec1, vec1])
+        
+        tracker = SessionIdentityTracker("test_bounds_1", custom_model=mock_model)
+        ref_audio = np.sin(np.linspace(0, 100, 16000)).astype(np.float32) * 0.5
+        tracker.enroll_reference(ref_audio)
+        
+        chunk_audio = np.sin(np.linspace(0, 100, 16000)).astype(np.float32) * 0.5
+        res = tracker.verify_chunk(chunk_audio)
+        
+        self.assertEqual(res["raw_cosine_similarity"], 1.0)
+        self.assertEqual(res["speaker_similarity"], 1.0)
+        self.assertEqual(res["identity_drift"], 0.0)
+        self.assertGreaterEqual(res["speaker_similarity"], 0.0)
+        self.assertLessEqual(res["speaker_similarity"], 1.0)
+        self.assertEqual(res["identity_drift"], round(1.0 - res["speaker_similarity"], 4))
+
+        # Test opposite vector (-1.0 cosine sim)
+        mock_model_opp = MockSpeakerModel()
+        mock_model_opp.compute_embedding = MagicMock(side_effect=[vec1, -vec1])
+        
+        tracker_opp = SessionIdentityTracker("test_bounds_opp", custom_model=mock_model_opp)
+        tracker_opp.enroll_reference(ref_audio)
+        res_opp = tracker_opp.verify_chunk(chunk_audio)
+
+        self.assertEqual(res_opp["raw_cosine_similarity"], -1.0)
+        self.assertEqual(res_opp["speaker_similarity"], 0.0)
+        self.assertEqual(res_opp["identity_drift"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
