@@ -87,7 +87,7 @@ npm run dev
 - [x] **Session Persistence**: Call history is saved to SQLite DB and retrieved via `GET /sessions/{session_id}/history`.
 
 ## Data contract
-Every risk update flowing from backend to frontend follows this shape:
+Every risk update flowing from backend to frontend follows this core 7-field contract:
 ```json
 {
   "chunk_id": "string",
@@ -99,6 +99,38 @@ Every risk update flowing from backend to frontend follows this shape:
   "alert_level": "low"
 }
 ```
+Optionally, backend streaming messages include an additive `advisory` object:
+```json
+{
+  "advisory": {
+    "recommendation": "pause_and_verify",
+    "reason_codes": ["unknown_caller", "sensitive_credential_request"],
+    "user_message": "Unverified caller requesting OTP/PIN. Do not share credentials over phone.",
+    "requires_user_confirmation": true
+  }
+}
+```
+
+## Contextual Pre-Transaction Warning Flow
+
+VoxGuard includes an explainable contextual policy engine that combines live acoustic voice risk with call/transaction metadata:
+
+- **Caller Status**: Known contact, Unknown contact, or Not provided
+- **Transaction Type**: Fund transfer, OTP or PIN request, Account update, Other, or Not provided
+- **Transfer Amount Threshold**: Conservatively flags unknown caller transfers $\ge$ ₹10,000 as `pause_and_verify`
+
+### Advisory Disclaimer & Data Minimisation
+- **Transparent Advisory**: Advisories are transparent, human-explainable policy recommendations to guide user caution—not automated financial decisions.
+- **Privacy & Minimisation**: Demo context data is stored in memory for the active session only and is **never written to SQLite database history**. Personal details, phone numbers, account numbers, OTPs, and PINs are strictly excluded.
+
+### Step-by-Step Demo Sequence
+1. **Choose Context**: Before starting a call, select caller status (e.g. `Unknown contact`) and transaction type (e.g. `OTP or PIN request` or `Fund transfer`).
+2. **Start Call**: Click **Start call** to send the context to the simulator and initiate WebSocket streaming.
+3. **Observe Advisory**: Watch the live dashboard render the advisory warning gate:
+   - `continue_with_caution` (Teal): Low acoustic risk & no suspicious context.
+   - `pause_and_verify` (Amber): Moderate acoustic risk or sensitive context (e.g. unknown caller requesting OTP/PIN or transfer $\ge$ ₹10,000). Click **"I verified independently"** to acknowledge.
+   - `block_and_report` (Red): High acoustic voice-cloning risk. Transaction approval is disabled. Click **"End call / verify through official channel"** to terminate the call.
+4. **Independently Verify**: Perform out-of-band verification via official banking apps or known official contacts before taking any sensitive transaction action.
 
 ## Team
 - **Yashraj** — Integration, git, docs
@@ -112,3 +144,4 @@ Every risk update flowing from backend to frontend follows this shape:
 - Cross-session speaker verification against enrolled genuine voice samples
 - Multilingual & regional accent support
 - On-device/edge inference for privacy-preserving deployment
+

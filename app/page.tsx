@@ -4,7 +4,10 @@ import { useState } from "react";
 import RiskGauge from "@/components/RiskGauge";
 import AlertBanner from "@/components/AlertBanner";
 import LiveWaveform from "@/components/LiveWaveform";
+import CallContextInput from "@/components/CallContextInput";
+import AdvisoryPanel from "@/components/AdvisoryPanel";
 import { useRiskSocket } from "@/hooks/useRiskSocket";
+import { SimulationContext } from "@/types/risk";
 
 // Day 5: pointed at Shreyas's real backend (falls back to the Day 3 mock
 // server if the env vars aren't set, so local dev without the backend
@@ -27,13 +30,19 @@ export default function Home() {
     "idle" | "starting" | "running" | "error"
   >("idle");
 
+  const [simContext, setSimContext] = useState<SimulationContext>({
+    caller_context: "not_provided",
+    transaction_type: "not_provided",
+    user_confirmation_required: true,
+  });
+
   async function handleStartCall() {
     setSimStatus("starting");
     try {
       const res = await fetch(`${API_BASE_URL}/start-simulation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ context: simContext }),
       });
       if (!res.ok) throw new Error(`start-simulation failed: ${res.status}`);
       setSimStatus("running");
@@ -80,6 +89,12 @@ export default function Home() {
         </p>
       </header>
 
+      <CallContextInput
+        value={simContext}
+        onChange={setSimContext}
+        disabled={simStatus === "starting" || simStatus === "running"}
+      />
+
       {status === "open" && (
         <div className="flex gap-2">
           <button
@@ -116,6 +131,11 @@ export default function Home() {
         flags={latest?.flags ?? []}
       />
 
+      <AdvisoryPanel
+        advisory={latest?.advisory}
+        onStopCall={handleStopCall}
+      />
+
       <div className="rounded-xl border border-border bg-surface px-4 py-3 font-mono text-xs text-muted">
         {latest ? (
           <>
@@ -129,3 +149,4 @@ export default function Home() {
     </main>
   );
 }
+
