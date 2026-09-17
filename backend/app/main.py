@@ -217,7 +217,7 @@ async def start_simulation_endpoint(request: Optional[SimulationRequest] = None)
         )
     except Exception as e:
         logger.error(f"Failed to start simulation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to start simulation.")
 
 
 @app.post("/stop-simulation", response_model=SimulationResponse, tags=["Simulator"])
