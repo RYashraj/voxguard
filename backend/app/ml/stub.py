@@ -2,6 +2,7 @@ import random
 import struct
 import math
 from typing import Dict, Any, Optional, List
+from app.ml.flag_filters import filter_public_flags
 
 
 class MLStubSession:
@@ -84,6 +85,6 @@ def analyze_chunk_stub(
     return {
         "chunk_score": chunk_score,
         "confidence": confidence,
-        "flags": flags,
+        "flags": filter_public_flags(flags),
         "rms_energy": round(rms_energy, 4)
     }

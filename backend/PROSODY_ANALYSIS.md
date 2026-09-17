@@ -73,3 +73,14 @@ Score fusion (combining prosody score with Spectra acoustic anti-spoofing score)
 ### Known Technical Limitations
 1. **3-Second Streaming Chunks**: Short 3-second evaluation windows limit the observation of multi-sentence macro-prosody and cadence patterns.
 2. **Telephony & Codec Distortion**: Telephony codecs (e.g., AMR, G.711, Opus at low bitrates) strip high-frequency harmonics and alter pitch trajectories, reducing pitch tracking precision.
+
+---
+
+## Public Output Signal Quarantine
+
+> [!IMPORTANT]
+> **RESEARCH-ONLY SIGNAL QUARANTINE**:
+> Empirical benchmark validation on public ASVspoof audio datasets concluded that uncalibrated prosody features do not demonstrate reliable separation between genuine human speech and synthetic spoof audio on 3-second streaming chunks.
+>
+> Therefore, prosody extraction is maintained strictly for **internal research, telemetry, and future calibration**. All unvalidated prosody-only labels (`prosody_flatness`, `low_pitch_variation`, `high_pause_ratio`, `low_voiced_ratio`, `insufficient_speech`, `prosody_unavailable`) are filtered out at the ML analyzer boundary and are **never emitted in public session results, WebSocket RiskUpdate messages, SQLite session history, or advisory transaction logic**.
+

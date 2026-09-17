@@ -197,7 +197,7 @@ class TestProsodyAnalysisModule(unittest.TestCase):
 
             # Inference succeeds with Spectra score
             self.assertGreater(res["chunk_score"], 0.90)
-            self.assertIn("prosody_unavailable", res["flags"])
+            self.assertNotIn("prosody_unavailable", res["flags"])
             self.assertIn("synthetic_artifact", res["flags"])
 
     def test_threshold_generated_prosody_flatness_removed_from_ml_model(self):

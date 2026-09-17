@@ -16,9 +16,11 @@ except ImportError:
     HAS_NUMPY = False
 
 from app.ml.prosody import extract_prosody_features, assess_prosody
+from app.ml.flag_filters import filter_public_flags
 
 SAMPLE_RATE = 16000
 REQUIRED_SAMPLES = 64600  # ~4 seconds required by Spectra-AASIST3
+
 
 
 def parse_audio_bytes(audio_bytes: bytes):
@@ -199,7 +201,7 @@ class SpectraAASISTDetector:
             prosody_flags = ["prosody_unavailable"]
 
         if not self.is_loaded:
-            active_flags = sorted(list(set(flags + prosody_flags + ["model_unavailable"])))
+            active_flags = filter_public_flags(sorted(list(set(flags + prosody_flags + ["model_unavailable"]))))
             return {
                 "chunk_score": 0.5,
                 "confidence": 0.0,
@@ -231,20 +233,21 @@ class SpectraAASISTDetector:
             if chunk_score > 0.70:
                 flags.append("synthetic_artifact")
 
-            combined_flags = sorted(list(set(flags + prosody_flags)))
+            # Filter unvalidated prosody-only labels from public output
+            public_flags = filter_public_flags(sorted(list(set(flags + prosody_flags))))
 
             return {
                 "chunk_score": chunk_score,
                 "confidence": confidence,
-                "flags": combined_flags
+                "flags": public_flags
             }
         except Exception as e:
             logger.error("Inference execution error: %s", type(e).__name__)
-            combined_flags = sorted(list(set(flags + prosody_flags + ["inference_error"])))
+            public_flags = filter_public_flags(sorted(list(set(flags + prosody_flags + ["inference_error"]))))
             return {
                 "chunk_score": 0.5,
                 "confidence": 0.0,
-                "flags": combined_flags
+                "flags": public_flags
             }
 
 
