@@ -83,7 +83,6 @@ It would complement deepfake detection rather than replace it.
 - Detection of unseen cloning techniques
 - Indian language and regional accent testing
 - Context-aware fraud risk assessment
-- Privacy-preserving / edge inference
 - Improved adaptive risk scoring
 
 ## Project Structure
