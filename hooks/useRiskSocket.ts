@@ -15,6 +15,7 @@ interface UseRiskSocketResult {
   warning: PreTransactionWarning | null;
   clear: () => void;
   clearWarning: () => void;
+  sendBytes: (data: ArrayBuffer | Blob | ArrayBufferView) => void;
 }
 
 /**
@@ -42,6 +43,12 @@ export function useRiskSocket(url: string): UseRiskSocketResult {
 
   const clearWarning = useCallback(() => {
     setWarning(null);
+  }, []);
+
+  const sendBytes = useCallback((data: ArrayBuffer | Blob | ArrayBufferView) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(data);
+    }
   }, []);
 
   const connect = useCallback(() => {
@@ -131,5 +138,5 @@ export function useRiskSocket(url: string): UseRiskSocketResult {
     };
   }, [connect]);
 
-  return { latest, history, status, warning, clear, clearWarning };
+  return { latest, history, status, warning, clear, clearWarning, sendBytes };
 }

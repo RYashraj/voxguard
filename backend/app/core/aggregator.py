@@ -26,14 +26,37 @@ class RollingRiskAggregator:
         self._weights = {i: list(range(1, i + 1)) for i in range(1, window_size + 1)}
         self._weight_sums = {i: sum(self._weights[i]) for i in range(1, window_size + 1)}
 
-    def update(self, chunk_score: float, flags: Optional[List[str]] = None) -> float:
+    def update(
+        self, 
+        chunk_score: float, 
+        prosody_score: Optional[float] = None,
+        identity_drift: Optional[float] = None,
+        flags: Optional[List[str]] = None
+    ) -> float:
         """
-        Updates the aggregator with a new chunk_score.
-        Appends to rolling window, computes weighted rolling average, and updates alert level.
+        Updates the aggregator with new ML scores.
+        Fuses AASIST (chunk_score), Prosody, and Identity into a unified threat score.
         Returns the computed rolling risk score.
         """
-        # Clamp chunk_score to [0.0, 1.0]
-        clamped_score = max(0.0, min(1.0, float(chunk_score)))
+        # Feature Fusion Logic (SIH Strategy: Multi-layer threat detection)
+        # 1. Base score is the Deepfake/AASIST score
+        fused_score = float(chunk_score)
+
+        # 2. If it's a human, but the identity doesn't match the CEO (mimic attack)
+        if identity_drift is not None and identity_drift > 0.5:
+            # High drift means it's an impersonator. Push risk up.
+            fused_score = max(fused_score, identity_drift)
+            if flags is not None and "impersonator_detected" not in flags:
+                flags.append("impersonator_detected")
+
+        # 3. If prosody is highly robotic, penalize slightly
+        if prosody_score is not None and prosody_score > 0.7:
+            fused_score = max(fused_score, chunk_score + 0.2)
+            if flags is not None and "robotic_prosody" not in flags:
+                flags.append("robotic_prosody")
+
+        # Clamp fused_score to [0.0, 1.0]
+        clamped_score = max(0.0, min(1.0, fused_score))
         self.scores.append(clamped_score)
         self.flag_history.append(flags or [])
         self.total_chunks_processed += 1
@@ -103,7 +126,14 @@ class RollingRiskAggregator:
         """
         Helper method to process a new chunk score and generate a valid RiskUpdate Pydantic model.
         """
-        rolling_score = self.update(chunk_score, flags=flags)
+        prosody = kwargs.get("prosody_score")
+        identity = kwargs.get("identity_drift")
+        rolling_score = self.update(
+            chunk_score, 
+            prosody_score=prosody, 
+            identity_drift=identity, 
+            flags=flags
+        )
         
         return RiskUpdate(
             chunk_id=chunk_id,

@@ -14,8 +14,10 @@ export interface ThresholdSettings {
 }
 
 export interface TransparencyBenchmark {
-  accent_language: string;
-  accuracy: number; // 0-100, placeholder until real ML team results are available
+  dataset: string;
+  description: string;
+  eer: string;
+  fpr: string;
   sample_size: number;
 }
 

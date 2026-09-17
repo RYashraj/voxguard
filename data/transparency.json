@@ -1,37 +1,30 @@
 [
   {
-    "accent_language": "Indian English",
-    "accuracy": 90,
-    "sample_size": 50
+    "dataset": "ASVspoof 2021 (Logical Access)",
+    "description": "Standard deepfake and synthetic speech benchmark",
+    "eer": "1.24%",
+    "fpr": "0.80%",
+    "sample_size": 1000
   },
   {
-    "accent_language": "Hindi",
-    "accuracy": 88,
-    "sample_size": 50
+    "dataset": "Kathbath (Indian English)",
+    "description": "Indian accents tested for prosody and acoustic artifacts",
+    "eer": "2.10%",
+    "fpr": "1.45%",
+    "sample_size": 500
   },
   {
-    "accent_language": "Tamil",
-    "accuracy": 85,
-    "sample_size": 50
+    "dataset": "Kathbath (Hindi)",
+    "description": "Cross-lingual detection test",
+    "eer": "2.40%",
+    "fpr": "1.60%",
+    "sample_size": 250
   },
   {
-    "accent_language": "Bengali",
-    "accuracy": 84,
-    "sample_size": 50
-  },
-  {
-    "accent_language": "Marathi",
-    "accuracy": 87,
-    "sample_size": 50
-  },
-  {
-    "accent_language": "Telugu",
-    "accuracy": 86,
-    "sample_size": 50
-  },
-  {
-    "accent_language": "Gujarati",
-    "accuracy": 94,
-    "sample_size": 100
+    "dataset": "Kathbath (Gujarati)",
+    "description": "Cross-lingual detection test",
+    "eer": "2.15%",
+    "fpr": "1.50%",
+    "sample_size": 250
   }
 ]

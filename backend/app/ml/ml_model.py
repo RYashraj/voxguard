@@ -118,6 +118,42 @@ def parse_audio_bytes(audio_bytes: bytes):
         logger.debug(f"WAV parse error: {e}")
         return None, 0.0, ["invalid_audio"]
 
+def parse_raw_pcm_bytes(audio_bytes: bytes, sample_rate: int = 16000):
+    """
+    Parses raw 16-bit PCM mono audio bytes (no WAV header) directly.
+    """
+    if not audio_bytes or len(audio_bytes) < 100:
+        return None, 0.0, ["invalid_audio", "short_audio"]
+
+    try:
+        if HAS_NUMPY:
+            audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        else:
+            total_samples = len(audio_bytes) // 2
+            raw_samples = struct.unpack(f"<{total_samples}h", audio_bytes)
+            audio = [s / 32768.0 for s in raw_samples]
+
+        sq_sum = sum(s * s for s in audio) if not HAS_NUMPY else float(np.sum(audio**2))
+        rms_energy = math.sqrt(sq_sum / len(audio)) if not HAS_NUMPY else float(np.sqrt(np.mean(audio**2)))
+        
+        flags = []
+        if rms_energy < 0.001:
+            flags.append("silent_audio")
+
+        if len(audio) < REQUIRED_SAMPLES:
+            flags.append("short_audio")
+            repeats = int(math.ceil(REQUIRED_SAMPLES / len(audio)))
+            if HAS_NUMPY:
+                audio = np.tile(audio, repeats)[:REQUIRED_SAMPLES]
+            else:
+                audio = (audio * repeats)[:REQUIRED_SAMPLES]
+
+        return audio, rms_energy, flags
+    except Exception as e:
+        logger.error(f"Raw PCM parse error: {e}")
+        return None, 0.0, ["invalid_audio"]
+
+
 
 class SpectraAASISTDetector:
     """
@@ -239,16 +275,14 @@ def get_detector() -> SpectraAASISTDetector:
 _IDENTITY_TRACKER = None
 _IDENTITY_LOCK = threading.Lock()
 
-def get_identity_tracker(audio_path: str):
+def get_identity_tracker(audio_path: str = None):
     global _IDENTITY_TRACKER
     if _IDENTITY_TRACKER is None:
         with _IDENTITY_LOCK:
             if _IDENTITY_TRACKER is None:
                 try:
-                    from identity_tracker import SessionIdentityTracker
-                    from speaker_test import get_embedding
-                    emb = get_embedding(audio_path)
-                    _IDENTITY_TRACKER = SessionIdentityTracker(emb)
+                    from .identity import IdentityTracker
+                    _IDENTITY_TRACKER = IdentityTracker(reference_audio_path=audio_path)
                 except Exception as e:
                     logger.error(f"Failed to initialize identity tracker: {e}")
     return _IDENTITY_TRACKER
@@ -302,7 +336,7 @@ def analyze_chunk(audio_bytes: bytes) -> dict:
         try:
             tracker = get_identity_tracker(tmp_path)
             if tracker is not None:
-                sim, drift = tracker.compare(tmp_path)
+                drift = tracker.check_drift(tmp_path)
                 result["identity_drift"] = round(drift, 4)
         except Exception as e:
             logger.error(f"Identity drift failed: {e}")
@@ -319,3 +353,73 @@ def analyze_chunk(audio_bytes: bytes) -> dict:
 
     result["flags"] = sorted(list(set(result["flags"])))
     return result
+
+def analyze_chunk_raw(pcm_bytes: bytes) -> dict:
+    """
+    Interface function for streaming raw PCM bytes over WebSocket.
+    """
+    audio, rms_energy, flags = parse_raw_pcm_bytes(pcm_bytes)
+
+    if "invalid_audio" in flags:
+        return {
+            "chunk_score": 0.5,
+            "confidence": 0.0,
+            "flags": ["invalid_audio"],
+            "prosody_score": None,
+            "identity_drift": None
+        }
+
+    if "silent_audio" in flags:
+        return {
+            "chunk_score": 0.5,
+            "confidence": 0.1,
+            "flags": sorted(list(set(flags))),
+            "prosody_score": None,
+            "identity_drift": None
+        }
+
+    detector = get_detector()
+    result = detector.predict_parsed(audio, rms_energy, flags)
+    result["prosody_score"] = None
+    result["identity_drift"] = None
+    
+    # Write to temp WAV for prosody/identity which require a valid file
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            with wave.open(tmp.name, 'wb') as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(SAMPLE_RATE)
+                wav_file.writeframes(pcm_bytes)
+            tmp_path = tmp.name
+            
+        try:
+            from prosody_score import prosody_score
+            p_res = prosody_score(tmp_path)
+            val = p_res.get("prosody_score", 0.0)
+            result["prosody_score"] = round(val / 100.0, 4) if val > 1.0 else round(val, 4)
+        except Exception as e:
+            logger.error(f"Prosody score failed: {e}")
+            result["flags"].append("prosody_error")
+
+        try:
+            tracker = get_identity_tracker(tmp_path)
+            if tracker is not None:
+                drift = tracker.check_drift(tmp_path)
+                result["identity_drift"] = round(drift, 4)
+        except Exception as e:
+            logger.error(f"Identity drift failed: {e}")
+            result["flags"].append("identity_error")
+
+    except Exception as e:
+        logger.error(f"Failed to process secondary signals: {e}")
+    finally:
+        if 'tmp_path' in locals() and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except:
+                pass
+
+    result["flags"] = sorted(list(set(result["flags"])))
+    return result
+

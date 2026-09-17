@@ -46,7 +46,7 @@ def analyze_chunk_stub(
                 pass
 
     # Score generation logic per scenario
-    if scenario == "clean":
+    if scenario == "clean" or scenario == "live_mic":
         # Safe human voice conversation (score remains comfortably < 0.35)
         base_score = 0.08 + (random.uniform(-0.03, 0.04))
         chunk_score = round(max(0.02, min(0.28, base_score)), 4)
