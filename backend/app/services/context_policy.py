@@ -79,12 +79,12 @@ def evaluate_advisory_policy(
         )
 
     # 3. Low Acoustic Risk Rules (Context Evaluation)
-    if not context:
+    if not context or (context.caller_context == "not_provided" and context.transaction_type == "not_provided"):
         return AdvisoryResult(
             recommendation="continue_with_caution",
             reason_codes=["context_not_provided"],
             user_message="Low acoustic risk detected. Proceed with caution.",
-            requires_user_confirmation=True
+            requires_user_confirmation=context.user_confirmation_required if context else True
         )
 
     reasons: List[str] = []
@@ -130,13 +130,14 @@ def evaluate_advisory_policy(
             requires_user_confirmation=True
         )
 
-    # Low risk with no concerning context
-    if not reasons or (context.caller_context == "not_provided" and context.transaction_type == "not_provided"):
-        reasons = ["context_not_provided"]
+    # Low risk with no concerning context flags
+    if not reasons:
+        reasons = ["normal_call_flow"]
 
     return AdvisoryResult(
         recommendation="continue_with_caution",
         reason_codes=sorted(list(set(reasons))),
-        user_message="Low acoustic risk detected. Proceed with caution and verify sensitive requests.",
+        user_message="Low acoustic risk detected. Proceed with caution.",
         requires_user_confirmation=context.user_confirmation_required
     )
+

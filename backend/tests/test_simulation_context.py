@@ -158,3 +158,42 @@ async def test_context_never_written_to_sqlite():
     assert "chunk_score" in record
     assert "rolling_risk_score" in record
     assert "alert_level" in record
+
+
+@pytest.mark.asyncio
+async def test_start_simulation_context_reaches_ws_advisory_known_caller():
+    """Integration Test: Context sent in POST /start-simulation reaches WebSocket advisory for known caller."""
+    from app.services.simulator import sim_runner
+
+    known_caller_ctx = SimulationContext(
+        caller_context="known_contact",
+        transaction_type="other",
+        user_confirmation_required=True
+    )
+
+    session_id = await sim_runner.start(
+        scenario="clean",
+        delay_sec=0.1,
+        context=known_caller_ctx
+    )
+
+    try:
+        # Verify in-memory session context is correctly registered
+        active_ctx = session_context_mgr.get_context(session_id)
+        assert active_ctx is not None
+        assert active_ctx.caller_context == "known_contact"
+        assert active_ctx.transaction_type == "other"
+
+        # Evaluate policy for low risk clean call
+        from app.services.context_policy import evaluate_advisory_policy
+        advisory = evaluate_advisory_policy(
+            rolling_risk_score=0.05,
+            alert_level="low",
+            context=active_ctx
+        )
+
+        assert advisory.recommendation == "continue_with_caution"
+        assert advisory.reason_codes == ["normal_call_flow"]
+    finally:
+        sim_runner.stop()
+

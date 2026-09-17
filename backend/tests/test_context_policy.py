@@ -15,19 +15,60 @@ from app.services.context_policy import (
 )
 
 
-def test_policy_low_risk_known_caller():
-    """Requirement Test 1: Low risk + known caller -> continue_with_caution."""
+def test_policy_low_risk_known_caller_other():
+    """Low risk + known caller + 'other' returns normal_call_flow, never context_not_provided."""
     ctx = SimulationContext(
         caller_context="known_contact",
-        transaction_type="not_provided",
+        transaction_type="other",
         user_confirmation_required=True
     )
     result = evaluate_advisory_policy(rolling_risk_score=0.15, alert_level="low", context=ctx)
 
     assert result.recommendation == "continue_with_caution"
-    assert "low_acoustic_spoof_risk" not in result.reason_codes
-    assert result.requires_user_confirmation is True
-    assert isinstance(result.user_message, str)
+    assert result.reason_codes == ["normal_call_flow"]
+    assert "context_not_provided" not in result.reason_codes
+
+
+def test_policy_low_risk_known_caller_account_update():
+    """Low risk + known caller + 'account_update' returns normal_call_flow."""
+    ctx = SimulationContext(
+        caller_context="known_contact",
+        transaction_type="account_update",
+        user_confirmation_required=True
+    )
+    result = evaluate_advisory_policy(rolling_risk_score=0.10, alert_level="low", context=ctx)
+
+    assert result.recommendation == "continue_with_caution"
+    assert result.reason_codes == ["normal_call_flow"]
+
+
+def test_policy_low_risk_unknown_caller_other():
+    """Low risk + unknown caller + 'other' retains unknown_caller."""
+    ctx = SimulationContext(
+        caller_context="unknown_contact",
+        transaction_type="other",
+        user_confirmation_required=True
+    )
+    result = evaluate_advisory_policy(rolling_risk_score=0.10, alert_level="low", context=ctx)
+
+    assert result.recommendation == "continue_with_caution"
+    assert result.reason_codes == ["unknown_caller"]
+
+
+def test_policy_low_risk_unprovided_context():
+    """Low risk + fully missing/unprovided context returns context_not_provided."""
+    result_none = evaluate_advisory_policy(rolling_risk_score=0.10, alert_level="low", context=None)
+    assert result_none.recommendation == "continue_with_caution"
+    assert result_none.reason_codes == ["context_not_provided"]
+
+    ctx_unprovided = SimulationContext(
+        caller_context="not_provided",
+        transaction_type="not_provided",
+        user_confirmation_required=True
+    )
+    result_unprovided = evaluate_advisory_policy(rolling_risk_score=0.10, alert_level="low", context=ctx_unprovided)
+    assert result_unprovided.recommendation == "continue_with_caution"
+    assert result_unprovided.reason_codes == ["context_not_provided"]
 
 
 def test_policy_medium_risk():
@@ -89,3 +130,4 @@ def test_policy_unknown_caller_low_value_transfer():
     assert result.recommendation == "continue_with_caution"
     assert "unknown_caller" in result.reason_codes
     assert "high_value_transaction" not in result.reason_codes
+
