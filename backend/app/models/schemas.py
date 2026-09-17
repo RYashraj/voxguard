@@ -54,6 +54,11 @@ class SimulationRequest(BaseModel):
         "gradual_escalation",
         description="Simulation scenario for chunk score trends"
     )
+    reference_audio_path: Optional[str] = Field(
+        None,
+        description="Optional local path to a consented reference WAV audio file for speaker identity verification (local demo only)."
+    )
+
 
 
 class SimulationResponse(BaseModel):

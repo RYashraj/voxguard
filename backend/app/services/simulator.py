@@ -97,22 +97,19 @@ def slice_wav_file(file_path: str, chunk_duration_sec: float = 3.0) -> list[dict
     return chunks
 
 
+from app.ml.speaker_verification import SessionIdentityTracker
+
 async def simulate_call(
     file_path: Optional[str] = None,
     chunk_duration_sec: float = 3.0,
     delay_sec: float = 3.0,
     scenario: str = "gradual_escalation",
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    reference_audio_path: Optional[str] = None
 ) -> AsyncGenerator[RiskUpdate, None]:
     """
-    Day 4 / Prompt 4 Pipeline:
     Simulates a live phone call by streaming sliced chunks over time.
-    For each chunk:
-    1. Slices audio bytes
-    2. Measures exact inference latency around analyze_chunk_dispatch
-    3. Feeds score into RollingRiskAggregator
-    4. Logs record into SQLite (safe, non-blocking)
-    5. Yields strict RiskUpdate model
+    Supports optional consented reference audio for speaker identity verification.
     """
     current_session_id = session_id or f"session_{uuid.uuid4().hex[:8]}"
 
@@ -125,48 +122,79 @@ async def simulate_call(
 
     aggregator = RollingRiskAggregator(window_size=5, low_threshold=0.4, high_threshold=0.7)
 
-    for idx, chunk in enumerate(chunks):
-        # 1. Measure inference latency around ML dispatch only
-        t0 = time.perf_counter()
-        analysis = await analyze_chunk_dispatch(
-            audio_bytes=chunk["audio_bytes"],
-            step=idx + 1,
-            scenario=scenario
-        )
-        t1 = time.perf_counter()
-        inference_latency_ms = round((t1 - t0) * 1000.0, 2)
-
-        # 2. Feed score into RollingRiskAggregator & create RiskUpdate
-        update = aggregator.create_risk_update(
-            chunk_id=chunk["chunk_id"],
-            chunk_score=analysis["chunk_score"],
-            confidence=analysis["confidence"],
-            flags=analysis["flags"],
-            timestamp=datetime.now(timezone.utc).isoformat()
-        )
-
-        # 3. Log chunk record into SQLite safely
+    # In-memory speaker identity tracker for session
+    identity_tracker = None
+    if reference_audio_path and os.path.exists(reference_audio_path):
         try:
-            await log_chunk_record_async(
-                session_id=current_session_id,
-                chunk_id=update.chunk_id,
-                timestamp=update.timestamp,
-                chunk_score=update.chunk_score,
-                rolling_risk_score=update.rolling_risk_score,
-                confidence=update.confidence,
-                flags=update.flags,
-                alert_level=update.alert_level,
-                inference_latency_ms=inference_latency_ms
-            )
+            with open(reference_audio_path, "rb") as ref_f:
+                ref_bytes = ref_f.read()
+            identity_tracker = SessionIdentityTracker(session_id=current_session_id)
+            enroll_res = identity_tracker.enroll_reference(ref_bytes)
+            logger.info(f"[{current_session_id}] Identity tracker reference enrollment: {enroll_res}")
         except Exception as e:
-            logger.error(f"Database log error (continuing stream): {e}")
+            logger.warning(f"[{current_session_id}] Failed to enroll reference audio: {e}")
+            identity_tracker = None
 
-        # 4. Yield RiskUpdate payload to WebSocket stream caller
-        yield update
+    try:
+        for idx, chunk in enumerate(chunks):
+            # 1. Measure inference latency around ML dispatch only
+            t0 = time.perf_counter()
+            analysis = await analyze_chunk_dispatch(
+                audio_bytes=chunk["audio_bytes"],
+                step=idx + 1,
+                scenario=scenario
+            )
+            t1 = time.perf_counter()
+            inference_latency_ms = round((t1 - t0) * 1000.0, 2)
 
-        # 5. Delay between chunks to simulate real-time call flow
-        if idx < total_chunks - 1:
-            await asyncio.sleep(delay_sec)
+            # 2. Run speaker identity verification if tracker is enrolled (internal telemetry)
+            if identity_tracker and identity_tracker.is_enrolled:
+                try:
+                    id_eval = identity_tracker.verify_chunk(chunk["audio_bytes"])
+                    logger.info(
+                        f"[{current_session_id}] Speaker Verification {chunk['chunk_id']}: "
+                        f"status={id_eval['status']}, similarity={id_eval['speaker_similarity']:.4f}, "
+                        f"drift={id_eval['identity_drift']:.4f}, flags={id_eval['flags']}"
+                    )
+                except Exception as id_err:
+                    logger.warning(f"Speaker verification error: {id_err}")
+
+            # 3. Feed score into RollingRiskAggregator & create RiskUpdate
+            update = aggregator.create_risk_update(
+                chunk_id=chunk["chunk_id"],
+                chunk_score=analysis["chunk_score"],
+                confidence=analysis["confidence"],
+                flags=analysis["flags"],
+                timestamp=datetime.now(timezone.utc).isoformat()
+            )
+
+            # 4. Log chunk record into SQLite safely
+            try:
+                await log_chunk_record_async(
+                    session_id=current_session_id,
+                    chunk_id=update.chunk_id,
+                    timestamp=update.timestamp,
+                    chunk_score=update.chunk_score,
+                    rolling_risk_score=update.rolling_risk_score,
+                    confidence=update.confidence,
+                    flags=update.flags,
+                    alert_level=update.alert_level,
+                    inference_latency_ms=inference_latency_ms
+                )
+            except Exception as e:
+                logger.error(f"Database log error (continuing stream): {e}")
+
+            # 5. Yield RiskUpdate payload to WebSocket stream caller
+            yield update
+
+            # 6. Delay between chunks to simulate real-time call flow
+            if idx < total_chunks - 1:
+                await asyncio.sleep(delay_sec)
+
+    finally:
+        # Wipe in-memory reference embedding when session ends/stops
+        if identity_tracker:
+            identity_tracker.clear()
 
 
 class SimulationRunner:
@@ -191,7 +219,8 @@ class SimulationRunner:
         file_path: Optional[str] = None,
         chunk_duration_sec: float = 3.0,
         delay_sec: float = 3.0,
-        scenario: str = "gradual_escalation"
+        scenario: str = "gradual_escalation",
+        reference_audio_path: Optional[str] = None
     ) -> str:
         if self._is_running and self._current_task and not self._current_task.done():
             self.stop()
@@ -207,7 +236,8 @@ class SimulationRunner:
                     chunk_duration_sec=chunk_duration_sec,
                     delay_sec=delay_sec,
                     scenario=scenario,
-                    session_id=self._session_id
+                    session_id=self._session_id,
+                    reference_audio_path=reference_audio_path
                 ):
                     if not self._is_running:
                         break
@@ -238,3 +268,4 @@ class SimulationRunner:
 
 
 sim_runner = SimulationRunner()
+
