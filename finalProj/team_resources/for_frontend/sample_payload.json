@@ -1,0 +1,11 @@
+{
+  "chunk_id": "chunk_001",
+  "timestamp": "2026-09-10T15:00:00.000000+00:00",
+  "chunk_score": 0.125,
+  "rolling_risk_score": 0.125,
+  "confidence": 0.945,
+  "flags": [
+    "synthetic_artifact"
+  ],
+  "alert_level": "low"
+}

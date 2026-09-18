@@ -1,0 +1,3 @@
+# Optional consented-speaker identity comparison runtime
+speechbrain>=1.0.0
+# SpeechBrain downloads the ECAPA-TDNN model on first comparison.
