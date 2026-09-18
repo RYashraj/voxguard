@@ -28,11 +28,14 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function Home() {
-  const { latest: demoLatest, history: demoHistory, status, clearHistory } = useRiskSocket(WS_URL);
-
   const [simStatus, setSimStatus] = useState<
     "idle" | "starting" | "running" | "error"
   >("idle");
+
+  // Only forward WS messages to state when simulation is actively running.
+  // This prevents the graph auto-spiking from backend broadcasts on page load.
+  const demoSocketActive = simStatus === "running";
+  const { latest: demoLatest, history: demoHistory, status, clearHistory } = useRiskSocket(WS_URL, { active: demoSocketActive });
 
   const [sampleType, setSampleType] = useState<string>("gradual_escalation");
   const [inputMode, setInputMode] = useState<"demo" | "microphone">("demo");

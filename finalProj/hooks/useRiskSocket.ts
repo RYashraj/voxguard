@@ -15,15 +15,27 @@ interface UseRiskSocketResult {
   clearHistory: () => void;
 }
 
+interface UseRiskSocketOptions {
+  /** When false, the WebSocket stays connected but incoming RiskUpdate
+   * messages are discarded. Set to true only when a simulation/call is
+   * actively running so idle page-load broadcasts don't spike the graph. */
+  active?: boolean;
+}
+
 /**
  * Connects to a WebSocket server streaming RiskUpdate JSON messages.
  * Keeps the most recent message plus a rolling history (max 20), and
  * auto-reconnects 2s after any disconnect/error.
  */
-export function useRiskSocket(url: string): UseRiskSocketResult {
+export function useRiskSocket(url: string, { active = true }: UseRiskSocketOptions = {}): UseRiskSocketResult {
   const [latest, setLatest] = useState<RiskUpdate | null>(null);
   const [history, setHistory] = useState<RiskUpdate[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+
+  // activeRef mirrors the `active` prop so the onmessage closure stays
+  // up-to-date without needing to tear down & recreate the socket.
+  const activeRef = useRef(active);
+  useEffect(() => { activeRef.current = active; }, [active]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -58,6 +70,13 @@ export function useRiskSocket(url: string): UseRiskSocketResult {
           typeof parsed?.rolling_risk_score !== "number" ||
           typeof parsed?.alert_level !== "string"
         ) {
+          return;
+        }
+
+        // *** GATE: discard risk data if the simulation/call isn't active ***
+        // This prevents auto-spiking the graph when the backend is still
+        // streaming from a previous session or startup broadcast.
+        if (!activeRef.current) {
           return;
         }
 

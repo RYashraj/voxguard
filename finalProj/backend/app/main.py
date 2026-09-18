@@ -92,6 +92,7 @@ DEMO_AUDIO_FILES = {
     "otp": BACKEND_DATA_DIR / "sample_calls" / "demo_call.wav",
     "deepfake": BACKEND_DATA_DIR / "test_audio" / "asvspoof_spoof_clips" / "LA_E_5932896.wav",
     "genuine": BACKEND_DATA_DIR / "sample_calls" / "demo_call.wav",
+    "clone_attack": BACKEND_DATA_DIR / "consented_reference_audio" / "identity_demo" / "clone" / "shreyasclonnnnn3_8XKpNa0k.wav",
 }
 IDENTITY_DEMO_DIR = BACKEND_DATA_DIR / "consented_reference_audio" / "identity_demo"
 
@@ -154,37 +155,120 @@ async def list_identity_demo_files():
 
 
 @app.get("/identity-demo/compare", tags=["Identity Demo"])
-async def compare_identity_demo():
-    """Compare the first consented original reference with the first consented clone sample."""
-    original_files = sorted((IDENTITY_DEMO_DIR / "original").glob("*.wav"))
-    clone_files = sorted((IDENTITY_DEMO_DIR / "clone").glob("*.wav"))
+async def compare_identity_demo(
+    original_file: Optional[str] = None,
+    clone_file: Optional[str] = None,
+):
+    """
+    Compare a consented original reference voice with an AI clone sample.
+    Optional query params `original_file` and `clone_file` let the frontend
+    select specific files from the identity_demo directories.
+    Falls back to first available file when not specified.
+    If SpeechBrain is unavailable, uses a pure-numpy spectral cosine similarity
+    as a graceful degraded demo so the panel always renders a result.
+    """
+    import io as _io
+    import wave as _wave
+    import struct as _struct
+    import math as _math
+
+    original_dir = IDENTITY_DEMO_DIR / "original"
+    clone_dir = IDENTITY_DEMO_DIR / "clone"
+
+    original_files = sorted(original_dir.glob("*.wav"))
+    clone_files = sorted(clone_dir.glob("*.wav"))
+
     if not original_files or not clone_files:
         raise HTTPException(status_code=404, detail="Consented original/clone WAV pair not found")
 
+    # Resolve which files to use
+    def _pick_file(directory, files, requested_name):
+        if requested_name:
+            candidate = directory / requested_name
+            if candidate.exists():
+                return candidate
+        return files[0]
+
+    orig_path = _pick_file(original_dir, original_files, original_file)
+    clon_path = _pick_file(clone_dir, clone_files, clone_file)
+
     tracker = SessionIdentityTracker(session_id="identity_demo")
     try:
-        enrolled = tracker.enroll_reference_path(str(original_files[0]))
-        if enrolled.get("status") != "ok":
+        enrolled = tracker.enroll_reference_path(str(orig_path))
+        if enrolled.get("status") == "ok":
+            with open(clon_path, "rb") as clone_audio:
+                result = tracker.verify_chunk(clone_audio.read())
             return {
-                "status": enrolled.get("status", "identity_unavailable"),
-                "message": enrolled.get("message", "Reference enrollment unavailable"),
-                "original_file": original_files[0].name,
-                "clone_file": clone_files[0].name,
+                "status": result["status"],
+                "original_file": orig_path.name,
+                "clone_file": clon_path.name,
+                "speaker_similarity": result["speaker_similarity"],
+                "identity_drift": result["identity_drift"],
+                "confidence": result["confidence"],
+                "flags": result["flags"],
+                "identity_mismatch": "identity_mismatch" in result["flags"],
             }
-        with open(clone_files[0], "rb") as clone_audio:
-            result = tracker.verify_chunk(clone_audio.read())
-        return {
-            "status": result["status"],
-            "original_file": original_files[0].name,
-            "clone_file": clone_files[0].name,
-            "speaker_similarity": result["speaker_similarity"],
-            "identity_drift": result["identity_drift"],
-            "confidence": result["confidence"],
-            "flags": result["flags"],
-            "identity_mismatch": "identity_mismatch" in result["flags"],
-        }
+        # If ECAPA enrollment failed (model not available), use numpy spectral fallback
+        raise RuntimeError(enrolled.get("message", "enrollment_failed"))
+    except Exception as e:
+        logger.info(f"ECAPA unavailable ({e}), using numpy spectral cosine fallback for demo.")
+        # --- Pure-numpy spectral cosine similarity fallback ---
+        try:
+            import numpy as np
+
+            def _wav_to_float(path: Path):
+                with _wave.open(str(path), "rb") as w:
+                    frames = w.readframes(w.getnframes())
+                    arr = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+                    if w.getnchannels() > 1:
+                        arr = arr.reshape(-1, w.getnchannels()).mean(axis=1)
+                return arr
+
+            def _spectral_feature(audio, n_bins=64):
+                # Simple magnitude spectrum averaged over 64 bins as a speaker fingerprint
+                n = len(audio)
+                if n == 0:
+                    return np.zeros(n_bins)
+                # Use first min(16384, n) samples
+                chunk = audio[:min(16384, n)]
+                spectrum = np.abs(np.fft.rfft(chunk, n=max(len(chunk), 1024)))
+                # Downsample spectrum to n_bins by averaging
+                bin_size = max(1, len(spectrum) // n_bins)
+                trimmed = spectrum[:bin_size * n_bins]
+                features = trimmed.reshape(n_bins, bin_size).mean(axis=1)
+                norm = np.linalg.norm(features)
+                return features / norm if norm > 0 else features
+
+            orig_audio = _wav_to_float(orig_path)
+            clon_audio = _wav_to_float(clon_path)
+            orig_feat = _spectral_feature(orig_audio)
+            clon_feat = _spectral_feature(clon_audio)
+            cos_sim = float(np.dot(orig_feat, clon_feat))
+            speaker_similarity = round(max(0.0, min(1.0, (cos_sim + 1.0) / 2.0)), 4)
+            identity_drift = round(max(0.0, min(1.0, 1.0 - speaker_similarity)), 4)
+            identity_mismatch = identity_drift > 0.45
+            return {
+                "status": "ok",
+                "original_file": orig_path.name,
+                "clone_file": clon_path.name,
+                "speaker_similarity": speaker_similarity,
+                "identity_drift": identity_drift,
+                "confidence": 0.70,
+                "flags": ["identity_mismatch"] if identity_mismatch else [],
+                "identity_mismatch": identity_mismatch,
+                "message": "Spectral cosine similarity (numpy fallback — ECAPA model not loaded)",
+            }
+        except Exception as np_err:
+            logger.error(f"Numpy fallback also failed: {np_err}")
+            return {
+                "status": "identity_unavailable",
+                "message": f"Both ECAPA and spectral fallback unavailable: {type(np_err).__name__}",
+                "original_file": orig_path.name,
+                "clone_file": clon_path.name,
+            }
     finally:
         tracker.clear()
+
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
@@ -311,7 +395,7 @@ async def websocket_live_microphone_endpoint(websocket: WebSocket):
             if not audio_bytes:
                 continue
             chunk_number += 1
-            analysis = await analyze_chunk_dispatch(audio_bytes, step=chunk_number, scenario="gradual_escalation")
+            analysis = await analyze_chunk_dispatch(audio_bytes, step=chunk_number, scenario="human_voice")
             update = aggregator.create_risk_update(
                 chunk_id=f"mic_{chunk_number:03d}",
                 chunk_score=analysis["chunk_score"],
