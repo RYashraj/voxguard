@@ -1,0 +1,11 @@
+Concatenation Sequence for backend/data/test_audio/asvspoof_spoof_demo.wav (Total Duration: 16.63s):
+
+1. LA_E_2834763.wav (1.43s) - ASVspoof 2019 LA Algorithm A11 (spoof)
+2. LA_E_8877452.wav (3.98s) - ASVspoof 2019 LA Algorithm A14 (spoof)
+3. LA_E_6828287.wav (1.56s) - ASVspoof 2019 LA Algorithm A16 (spoof)
+4. LA_E_6977360.wav (1.96s) - ASVspoof 2019 LA Algorithm A09 (spoof)
+5. LA_E_5932896.wav (5.80s) - ASVspoof 2019 LA Algorithm A13 (spoof)
+6. LA_E_6163791.wav (1.90s) - ASVspoof 2019 LA Algorithm A09 (spoof)
+
+Source Dataset: SpeechAntiSpoofingBenchmarks/ASVspoof2019_LA (Hugging Face)
+Usage: Internal machine learning benchmark evaluation clip. Not a clone of any real person.

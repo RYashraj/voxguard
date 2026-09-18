@@ -1,0 +1,12 @@
+{
+  "sample_rate_hz": 16000,
+  "channels": 1,
+  "channel_layout": "mono",
+  "bit_depth": 16,
+  "encoding": "PCM_16_LE (signed 16-bit little-endian)",
+  "chunk_duration_seconds": 3.0,
+  "samples_per_chunk": 48000,
+  "approx_chunk_bytes": 96044,
+  "wav_header_bytes": 44,
+  "target_latency_seconds": 1.0
+}

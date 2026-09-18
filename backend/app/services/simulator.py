@@ -1,0 +1,324 @@
+import os
+import io
+import time
+import uuid
+import wave
+import asyncio
+import logging
+from typing import AsyncGenerator, Dict, Any, Optional
+from datetime import datetime, timezone
+from pathlib import Path
+
+from app.models.schemas import RiskUpdate, SimulationContext
+from app.core.aggregator import RollingRiskAggregator
+from app.ml.analyzer import analyze_chunk_dispatch
+from app.db.session_logger import log_chunk_record_async
+from app.services.websocket_manager import ws_manager
+from app.utils.audio_generator import ensure_default_sample_audio
+from app.services.session_context_manager import session_context_mgr
+from app.services.context_policy import evaluate_advisory_policy
+
+logger = logging.getLogger("voxguard.simulator")
+
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except ImportError:
+    PYDUB_AVAILABLE = False
+
+
+def resolve_audio_path(file_path: Optional[str]) -> Optional[str]:
+    """
+    Resolves a relative audio file path against workspace root and backend root.
+    """
+    if not file_path:
+        return None
+    if os.path.exists(file_path):
+        return file_path
+    backend_root = Path(__file__).resolve().parent.parent.parent
+    candidate_backend = backend_root / file_path
+    if candidate_backend.exists():
+        return str(candidate_backend)
+    workspace_root = backend_root.parent
+    candidate_workspace = workspace_root / file_path
+    if candidate_workspace.exists():
+        return str(candidate_workspace)
+    return file_path
+
+
+def slice_wav_file(file_path: str, chunk_duration_sec: float = 3.0) -> list[dict[str, Any]]:
+    """
+    Slices a WAV file into chunks of `chunk_duration_sec` seconds.
+    Uses pydub if available, with built-in standard wave module fallback.
+    Returns a list of chunk dicts containing chunk_id, index, raw_bytes, and duration.
+    """
+    file_path = resolve_audio_path(file_path) or file_path
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Audio file not found at: {file_path}")
+
+    chunks = []
+    chunk_ms = int(chunk_duration_sec * 1000)
+
+    if PYDUB_AVAILABLE:
+        try:
+            audio = AudioSegment.from_file(file_path)
+            total_len_ms = len(audio)
+            
+            for i, start_ms in enumerate(range(0, total_len_ms, chunk_ms)):
+                end_ms = min(start_ms + chunk_ms, total_len_ms)
+                if (end_ms - start_ms < 500) and len(chunks) > 0:
+                    continue
+
+                chunk_segment = audio[start_ms:end_ms]
+                buffer = io.BytesIO()
+                chunk_segment.export(buffer, format="wav")
+                chunk_bytes = buffer.getvalue()
+
+                chunks.append({
+                    "chunk_id": f"chunk_{i+1:03d}",
+                    "index": i + 1,
+                    "audio_bytes": chunk_bytes,
+                    "duration_sec": (end_ms - start_ms) / 1000.0,
+                    "start_time_sec": start_ms / 1000.0
+                })
+            return chunks
+        except Exception as e:
+            logger.warning(f"pydub slicing encountered an issue: {e}. Falling back to standard wave module.")
+
+    with wave.open(file_path, 'rb') as wav_file:
+        n_channels = wav_file.getnchannels()
+        sampwidth = wav_file.getsampwidth()
+        framerate = wav_file.getframerate()
+        n_frames = wav_file.getnframes()
+        
+        frames_per_chunk = int(framerate * chunk_duration_sec)
+        total_chunks = (n_frames + frames_per_chunk - 1) // frames_per_chunk
+        
+        for i in range(total_chunks):
+            wav_file.setpos(i * frames_per_chunk)
+            frames_to_read = min(frames_per_chunk, n_frames - (i * frames_per_chunk))
+            if frames_to_read < int(framerate * 0.5) and i > 0:
+                continue
+                
+            raw_frames = wav_file.readframes(frames_to_read)
+            
+            chunk_buffer = io.BytesIO()
+            with wave.open(chunk_buffer, 'wb') as chunk_wav:
+                chunk_wav.setnchannels(n_channels)
+                chunk_wav.setsampwidth(sampwidth)
+                chunk_wav.setframerate(framerate)
+                chunk_wav.writeframes(raw_frames)
+            
+            chunks.append({
+                "chunk_id": f"chunk_{i+1:03d}",
+                "index": i + 1,
+                "audio_bytes": chunk_buffer.getvalue(),
+                "duration_sec": frames_to_read / framerate,
+                "start_time_sec": (i * frames_per_chunk) / framerate
+            })
+
+    return chunks
+
+
+from app.ml.speaker_verification import SessionIdentityTracker
+
+async def simulate_call(
+    file_path: Optional[str] = None,
+    chunk_duration_sec: float = 3.0,
+    delay_sec: float = 3.0,
+    scenario: str = "gradual_escalation",
+    session_id: Optional[str] = None,
+    reference_audio_path: Optional[str] = None,
+    context: Optional[SimulationContext] = None
+) -> AsyncGenerator[RiskUpdate, None]:
+    """
+    Simulates a live phone call by streaming sliced chunks over time.
+    Supports optional consented reference audio for speaker identity verification.
+    """
+    current_session_id = session_id or f"session_{uuid.uuid4().hex[:8]}"
+
+    # Ensure session is registered in-memory for context evaluation if standalone
+    if not session_context_mgr.is_active_session(current_session_id):
+        session_context_mgr.register_session(current_session_id, context)
+    elif context is not None:
+        session_context_mgr.set_context(current_session_id, context)
+
+    file_path = resolve_audio_path(file_path)
+    if not file_path or not os.path.exists(file_path):
+        file_path = ensure_default_sample_audio()
+
+    chunks = slice_wav_file(file_path, chunk_duration_sec=chunk_duration_sec)
+    total_chunks = len(chunks)
+    logger.info(f"Starting call simulation for '{file_path}' (session={current_session_id}): {total_chunks} chunks of {chunk_duration_sec}s each.")
+
+    aggregator = RollingRiskAggregator(window_size=5, low_threshold=0.4, high_threshold=0.7)
+
+    # In-memory speaker identity tracker for session
+    identity_tracker = None
+    if reference_audio_path:
+        reference_audio_path = resolve_audio_path(reference_audio_path)
+        identity_tracker = SessionIdentityTracker(session_id=current_session_id)
+        enroll_res = identity_tracker.enroll_reference_path(reference_audio_path)
+        if enroll_res.get("status") == "ok":
+            logger.info(f"[{current_session_id}] Identity tracker reference enrollment: {enroll_res}")
+        else:
+            logger.warning(f"[{current_session_id}] Reference enrollment rejected: {enroll_res}")
+            identity_tracker = None
+
+
+    try:
+        for idx, chunk in enumerate(chunks):
+            # 1. Measure inference latency around ML dispatch only
+            t0 = time.perf_counter()
+            analysis = await analyze_chunk_dispatch(
+                audio_bytes=chunk["audio_bytes"],
+                step=idx + 1,
+                scenario=scenario
+            )
+            t1 = time.perf_counter()
+            inference_latency_ms = round((t1 - t0) * 1000.0, 2)
+
+            # 2. Run speaker identity verification if tracker is enrolled (internal telemetry)
+            if identity_tracker and identity_tracker.is_enrolled:
+                try:
+                    id_eval = identity_tracker.verify_chunk(chunk["audio_bytes"])
+                    logger.info(
+                        f"[{current_session_id}] Speaker Verification {chunk['chunk_id']}: "
+                        f"status={id_eval['status']}, similarity={id_eval['speaker_similarity']:.4f}, "
+                        f"drift={id_eval['identity_drift']:.4f}, flags={id_eval['flags']}"
+                    )
+                except Exception as id_err:
+                    logger.warning(f"Speaker verification error: {id_err}")
+
+            # 3. Feed score into RollingRiskAggregator & create RiskUpdate
+            update = aggregator.create_risk_update(
+                chunk_id=chunk["chunk_id"],
+                chunk_score=analysis["chunk_score"],
+                confidence=analysis["confidence"],
+                flags=analysis["flags"],
+                timestamp=datetime.now(timezone.utc).isoformat()
+            )
+
+            # 4. Log chunk record into SQLite safely (ONLY original 7 core fields)
+            try:
+                await log_chunk_record_async(
+                    session_id=current_session_id,
+                    chunk_id=update.chunk_id,
+                    timestamp=update.timestamp,
+                    chunk_score=update.chunk_score,
+                    rolling_risk_score=update.rolling_risk_score,
+                    confidence=update.confidence,
+                    flags=update.flags,
+                    alert_level=update.alert_level,
+                    inference_latency_ms=inference_latency_ms
+                )
+            except Exception as e:
+                logger.error(f"Database log error (continuing stream): {e}")
+
+            # 5. Yield RiskUpdate payload to WebSocket stream caller
+            yield update
+
+            # 6. Delay between chunks to simulate real-time call flow
+            if idx < total_chunks - 1:
+                await asyncio.sleep(delay_sec)
+
+    finally:
+        # Wipe in-memory reference embedding when session ends/stops
+        if identity_tracker:
+            identity_tracker.clear()
+        if session_id is None:
+            session_context_mgr.remove_session(current_session_id)
+
+
+class SimulationRunner:
+    """
+    Manages running call simulation background tasks and broadcasts to WebSockets.
+    """
+    def __init__(self):
+        self._current_task: Optional[asyncio.Task] = None
+        self._is_running: bool = False
+        self._session_id: Optional[str] = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._is_running
+
+    @property
+    def session_id(self) -> Optional[str]:
+        return self._session_id
+
+    async def start(
+        self,
+        file_path: Optional[str] = None,
+        chunk_duration_sec: float = 3.0,
+        delay_sec: float = 3.0,
+        scenario: str = "gradual_escalation",
+        reference_audio_path: Optional[str] = None,
+        context: Optional[SimulationContext] = None
+    ) -> str:
+        if self._is_running and self._current_task and not self._current_task.done():
+            self.stop()
+
+        self._session_id = f"session_{uuid.uuid4().hex[:8]}"
+        self._is_running = True
+
+        # Register in-memory session context
+        session_context_mgr.register_session(self._session_id, context)
+
+        async def _run_stream():
+            try:
+                logger.info(f"Simulation task started: session={self._session_id}")
+                async for risk_update in simulate_call(
+                    file_path=file_path,
+                    chunk_duration_sec=chunk_duration_sec,
+                    delay_sec=delay_sec,
+                    scenario=scenario,
+                    session_id=self._session_id,
+                    reference_audio_path=reference_audio_path,
+                    context=context
+                ):
+                    if not self._is_running:
+                        break
+                    
+                    payload = risk_update.model_dump()
+                    active_ctx = session_context_mgr.get_context(self._session_id)
+                    advisory = evaluate_advisory_policy(
+                        rolling_risk_score=risk_update.rolling_risk_score,
+                        alert_level=risk_update.alert_level,
+                        context=active_ctx
+                    )
+                    payload["advisory"] = advisory.model_dump()
+
+                    await ws_manager.broadcast(payload)
+                    logger.info(
+                        f"[{self._session_id}] Streamed {risk_update.chunk_id}: "
+                        f"chunk_score={risk_update.chunk_score:.4f}, "
+                        f"rolling={risk_update.rolling_risk_score:.4f}, "
+                        f"alert={risk_update.alert_level}, "
+                        f"recommendation={advisory.recommendation}"
+                    )
+            except asyncio.CancelledError:
+                logger.info(f"Simulation task {self._session_id} cancelled.")
+            except Exception as e:
+                logger.error(f"Error in simulation stream: {e}", exc_info=True)
+            finally:
+                self._is_running = False
+                if self._session_id:
+                    session_context_mgr.remove_session(self._session_id)
+                logger.info(f"Simulation task finished.")
+
+        self._current_task = asyncio.create_task(_run_stream())
+        return self._session_id
+
+    def stop(self):
+        if self._current_task and not self._current_task.done():
+            self._is_running = False
+            self._current_task.cancel()
+        if self._session_id:
+            session_context_mgr.remove_session(self._session_id)
+        self._is_running = False
+
+
+sim_runner = SimulationRunner()
+
+
