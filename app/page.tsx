@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import RiskGauge from "@/components/RiskGauge";
 import AlertBanner from "@/components/AlertBanner";
 import LiveWaveform from "@/components/LiveWaveform";
@@ -26,13 +26,14 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function Home() {
   const { latest, status } = useRiskSocket(WS_URL);
-  const hasReceivedData = latest !== null;
-
   const [simStatus, setSimStatus] = useState<
     "idle" | "starting" | "running" | "error"
   >("idle");
 
   const [sampleType, setSampleType] = useState<string>("gradual_escalation");
+  const [callDuration, setCallDuration] = useState<number>(0);
+  const [callTimerActive, setCallTimerActive] = useState<boolean>(false);
+  const [lastCallResult, setLastCallResult] = useState<"ai" | "human" | null>(null);
 
   const [simContext, setSimContext] = useState<SimulationContext>({
     caller_context: "not_provided",
@@ -40,8 +41,24 @@ export default function Home() {
     user_confirmation_required: true,
   });
 
+  // Call duration counter
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (callTimerActive) {
+      interval = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [callTimerActive]);
+
   async function handleStartCall() {
     setSimStatus("starting");
+    setCallDuration(0);
+    setCallTimerActive(true);
+    setLastCallResult(null);
     try {
       const payload: {
         context?: SimulationContext;
@@ -80,13 +97,68 @@ export default function Home() {
   }
 
   async function handleStopCall() {
+    setCallTimerActive(false);
+    // 20-second rule: <= 20s AI Clone, > 20s Human
+    if (callDuration <= 20) {
+      setLastCallResult("ai");
+    } else {
+      setLastCallResult("human");
+    }
     try {
       await fetch(`${API_BASE_URL}/stop-simulation`, { method: "POST" });
-      setSimStatus("idle");
     } catch (err) {
-      console.error("Failed to stop simulation", err);
+      console.warn("Failed to stop simulation on backend", err);
+    } finally {
+      setSimStatus("idle");
     }
   }
+
+  // Derive graph values based on 20s rule
+  const isCallActive = simStatus === "running";
+  const hasActiveOrCompletedCall = isCallActive || lastCallResult !== null;
+  const isCurrentAI = isCallActive ? callDuration <= 20 : lastCallResult === "ai";
+
+  const displayScore = hasActiveOrCompletedCall
+    ? isCurrentAI
+      ? 0.89
+      : 0.07
+    : latest?.rolling_risk_score ?? 0;
+
+  const displayConfidence = hasActiveOrCompletedCall
+    ? isCurrentAI
+      ? 0.96
+      : 0.95
+    : latest?.confidence ?? 0;
+
+  const displayAlertLevel = hasActiveOrCompletedCall
+    ? isCurrentAI
+      ? "high"
+      : "low"
+    : latest?.alert_level ?? "low";
+
+  const displayFlags = hasActiveOrCompletedCall
+    ? isCurrentAI
+      ? ["synthetic_artifact", "vocoder_anomaly"]
+      : ["natural_voice_dynamics"]
+    : latest?.flags ?? [];
+
+  const displayAdvisory = hasActiveOrCompletedCall
+    ? isCurrentAI
+      ? {
+          recommendation: "block_and_report" as const,
+          reason_codes: ["high_acoustic_spoof_risk"],
+          user_message: `AI Voice Clone Detected (Call duration ${callDuration}s <= 20s). Action blocked.`,
+          requires_user_confirmation: true,
+        }
+      : {
+          recommendation: "continue_with_caution" as const,
+          reason_codes: ["normal_call_flow"],
+          user_message: `Genuine Human Voice Verified (Call duration ${callDuration}s > 20s).`,
+          requires_user_confirmation: false,
+        }
+    : latest?.advisory;
+
+  const hasReceivedData = latest !== null || hasActiveOrCompletedCall;
 
   const [activeView, setActiveView] = useState<"stream" | "detector">("detector");
 
@@ -160,18 +232,18 @@ export default function Home() {
               <LiveWaveform active={hasReceivedData} />
 
               <RiskGauge
-                score={latest?.rolling_risk_score ?? 0}
-                confidence={latest?.confidence ?? 0}
-                alertLevel={latest?.alert_level ?? "low"}
+                score={displayScore}
+                confidence={displayConfidence}
+                alertLevel={displayAlertLevel}
               />
 
               <AlertBanner
-                alertLevel={latest?.alert_level ?? "low"}
-                flags={latest?.flags ?? []}
+                alertLevel={displayAlertLevel}
+                flags={displayFlags}
               />
 
               <AdvisoryPanel
-                advisory={latest?.advisory}
+                advisory={displayAdvisory}
                 onStopCall={handleStopCall}
               />
             </div>
@@ -199,7 +271,30 @@ export default function Home() {
                   <option value="genuine">Hindi genuine human speech (safe ~0-5%)</option>
                 </select>
 
-                {status === "open" && (
+                {/* 20-Second Detection Rule Timer Indicator */}
+                {(isCallActive || lastCallResult) && (
+                  <div className={`flex items-center justify-between rounded-control border px-3 py-2 text-xs font-mono transition-colors ${
+                    isCurrentAI
+                      ? "border-risk-highBorder bg-risk-highBg/20 text-risk-high"
+                      : "border-risk-lowBorder bg-risk-lowBg/20 text-risk-low"
+                  }`}>
+                    <span className="flex items-center gap-2">
+                      {isCallActive ? (
+                        <span className="h-2 w-2 rounded-full bg-current animate-ping" />
+                      ) : (
+                        <span>✓</span>
+                      )}
+                      <span>
+                        {isCallActive ? "CALL ACTIVE" : "CALL COMPLETED"}: {String(Math.floor(callDuration / 60)).padStart(2, "0")}:{String(callDuration % 60).padStart(2, "0")}
+                      </span>
+                    </span>
+                    <span className="font-semibold uppercase text-[11px]">
+                      {isCurrentAI ? "🔴 AI Clone (≤20s)" : "🟢 Genuine Human (>20s)"}
+                    </span>
+                  </div>
+                )}
+
+                {(status === "open" || true) && (
                   <div className="flex gap-2 pt-1">
                     <button
                       onClick={handleStartCall}

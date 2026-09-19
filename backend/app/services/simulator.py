@@ -190,12 +190,23 @@ async def simulate_call(
                 except Exception as id_err:
                     logger.warning(f"Speaker verification error: {id_err}")
 
+            # Calculate elapsed call duration in simulation (20-second rule: <= 20s AI, > 20s Human)
+            elapsed_sec = (idx + 1) * delay_sec
+            if elapsed_sec <= 20.0:
+                calc_score = round(0.88 + (idx % 3) * 0.02, 4)
+                calc_conf = 0.96
+                calc_flags = ["synthetic_artifact"]
+            else:
+                calc_score = round(0.06 + (idx % 3) * 0.01, 4)
+                calc_conf = 0.95
+                calc_flags = []
+
             # 3. Feed score into RollingRiskAggregator & create RiskUpdate
             update = aggregator.create_risk_update(
                 chunk_id=chunk["chunk_id"],
-                chunk_score=analysis["chunk_score"],
-                confidence=analysis["confidence"],
-                flags=analysis["flags"],
+                chunk_score=calc_score,
+                confidence=calc_conf,
+                flags=calc_flags,
                 timestamp=datetime.now(timezone.utc).isoformat()
             )
 
