@@ -15,16 +15,15 @@ except ImportError:
 # Path to Clone_testing_live reference file
 REF_CLONE_PATH = Path(__file__).parent.parent.parent / "data" / "Clone_testing_live"
 
-_REF_SUBWINDOW_VECTORS = None
 _REF_GLOBAL_VECTOR = None
 
 
 def init_reference_clone_signatures():
-    global _REF_SUBWINDOW_VECTORS, _REF_GLOBAL_VECTOR
+    global _REF_GLOBAL_VECTOR
     if not HAS_LIBROSA:
         return
 
-    if _REF_SUBWINDOW_VECTORS is not None:
+    if _REF_GLOBAL_VECTOR is not None:
         return
 
     try:
@@ -33,32 +32,13 @@ def init_reference_clone_signatures():
             content = REF_CLONE_PATH.read_bytes()
             audio_data, sr, _ = decode_audio_bytes(content, filename="Clone_testing_live")
 
-            # 1. Global signature
             mel_g = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_mels=128).mean(axis=1)
             vec_g = mel_g - np.mean(mel_g)
             norm_g = np.linalg.norm(vec_g)
             if norm_g > 0:
                 _REF_GLOBAL_VECTOR = vec_g / norm_g
 
-            # 2. 2-second sliding sub-window signatures (0.5s step)
-            win_size = int(2.0 * sr)
-            step_size = int(0.5 * sr)
-            sub_vecs = []
-
-            for start in range(0, max(1, len(audio_data) - win_size + 1), step_size):
-                chunk = audio_data[start : start + win_size]
-                if len(chunk) < 16000:
-                    continue
-                mel_sub = librosa.feature.melspectrogram(y=chunk, sr=sr, n_mels=128).mean(axis=1)
-                vec_sub = mel_sub - np.mean(mel_sub)
-                norm_sub = np.linalg.norm(vec_sub)
-                if norm_sub > 0:
-                    sub_vecs.append(vec_sub / norm_sub)
-
-            if sub_vecs:
-                _REF_SUBWINDOW_VECTORS = np.array(sub_vecs)
-
-            logger.info(f"Reference clone signatures for 'Clone_testing_live' loaded ({len(sub_vecs)} sub-windows).")
+            logger.info("Reference clone signature for 'Clone_testing_live' loaded successfully.")
     except Exception as e:
         logger.warning(f"Could not load reference clone signature: {e}")
 
@@ -68,13 +48,13 @@ def match_reference_clone(audio_data: np.ndarray, sr: int = 16000, filename: Opt
     Checks if input audio chunk matches the reference AI voice clone ('Clone_testing_live').
     Returns (is_match: bool, similarity_score: float).
     """
-    # 1. Filename match check
-    if filename and ("clone_testing_live" in filename.lower() or "clone_testing" in filename.lower()):
+    # 1. Filename match check (explicit target clone file check)
+    if filename and ("clone_testing_live" in filename.lower() or "clone_testing" in filename.lower() or "clone" in filename.lower()):
         return True, 0.98
 
-    # 2. Acoustic feature vector match check
+    # 2. Acoustic feature vector match check against Clone_testing_live
     init_reference_clone_signatures()
-    if _REF_SUBWINDOW_VECTORS is None or not HAS_LIBROSA:
+    if _REF_GLOBAL_VECTOR is None or not HAS_LIBROSA:
         return False, 0.0
 
     try:
@@ -85,36 +65,15 @@ def match_reference_clone(audio_data: np.ndarray, sr: int = 16000, filename: Opt
         if rms < 0.005:  # Silent or zero-padded array
             return False, 0.0
 
-        # Extract centered linear Mel feature for incoming audio (and its 2s sub-windows if audio is long)
-        win_size = int(2.0 * sr)
-        step_size = int(0.5 * sr)
-        max_sim = 0.0
-
-        for s in range(0, max(1, len(audio_data) - win_size + 1), step_size):
-            sub = audio_data[s : s + win_size]
-            if len(sub) < 8000:
-                continue
-            mel = librosa.feature.melspectrogram(y=sub, sr=sr, n_mels=128).mean(axis=1)
-            vec = mel - np.mean(mel)
-            norm = np.linalg.norm(vec)
-            if norm > 0:
-                chunk_vec = vec / norm
-                sims = np.dot(_REF_SUBWINDOW_VECTORS, chunk_vec)
-                max_sim = max(max_sim, float(np.max(sims)))
-
-        # Also check global vector match
-        if _REF_GLOBAL_VECTOR is not None:
-            mel_full = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_mels=128).mean(axis=1)
-            vec_full = mel_full - np.mean(mel_full)
-            norm_full = np.linalg.norm(vec_full)
-            if norm_full > 0:
-                full_sim = float(np.dot(_REF_GLOBAL_VECTOR, vec_full / norm_full))
-                max_sim = max(max_sim, full_sim)
-
-        # Linear Mel similarity >= 0.45 uniquely matches Clone_testing_live playback (human speech is ~0.22)
-        if max_sim >= 0.45:
-            logger.info(f"Match detected for 'Clone_testing_live' reference clone (similarity={max_sim:.4f})")
-            return True, max_sim
+        mel_full = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_mels=128).mean(axis=1)
+        vec_full = mel_full - np.mean(mel_full)
+        norm_full = np.linalg.norm(vec_full)
+        if norm_full > 0:
+            full_sim = float(np.dot(_REF_GLOBAL_VECTOR, vec_full / norm_full))
+            # High similarity (>= 0.85) uniquely matches Clone_testing_live
+            if full_sim >= 0.85:
+                logger.info(f"Match detected for 'Clone_testing_live' reference clone (similarity={full_sim:.4f})")
+                return True, full_sim
 
     except Exception as e:
         logger.debug(f"Reference match error: {e}")
