@@ -97,13 +97,8 @@ def decode_audio_bytes(audio_bytes: bytes, filename: Optional[str] = None) -> Tu
             ).astype(np.float32)
             sr = TARGET_SAMPLE_RATE
 
-    # Clean high-frequency electronic noise/hiss & DC offset (80Hz - 7500Hz speech bandpass)
-    try:
-        import scipy.signal
-        sos = scipy.signal.butter(4, [80, 7500], btype='bandpass', fs=TARGET_SAMPLE_RATE, output='sos')
-        audio_data = scipy.signal.sosfilt(sos, audio_data).astype(np.float32)
-    except Exception as filt_err:
-        logger.debug(f"Bandpass filter skip: {filt_err}")
+    # Preserve raw spectral range for neural vocoder artifact detection up to 8kHz Nyquist frequency
+    # No artificial high-frequency cutoff applied so synthetic vocoder artifacts remain intact
 
     # Create 16-bit PCM WAV bytes
     int16_samples = (np.clip(audio_data, -1.0, 1.0) * 32767.0).astype(np.int16)

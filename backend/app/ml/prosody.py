@@ -43,7 +43,7 @@ except ImportError:
 
 # INITIAL UNCALIBRATED HEURISTIC THRESHOLDS
 # WARNING: These thresholds are uncalibrated baseline heuristics.
-LOW_F0_STD_THRESHOLD_HZ = 12.0       # Pitch std dev < 12 Hz suggests flat pitch monotonic synthesis typical of hyper-realistic AI voice clones
+LOW_F0_STD_THRESHOLD_HZ = 6.0        # Pitch std dev < 6.0 Hz suggests flat pitch monotonic synthesis typical of hyper-realistic AI voice clones
 HIGH_PAUSE_RATIO_THRESHOLD = 0.40    # Pause duration > 40% of chunk duration
 LOW_VOICED_RATIO_THRESHOLD = 0.20    # Voiced speech < 20% of active frames
 MIN_VOICED_FRAMES_REQUIRED = 5       # Minimum voiced frames required for F0 stats

@@ -64,15 +64,33 @@ def test_analyze_audio_classification_ai_clone():
         assert data["alert_level"] == "high"
         assert "AI Voice Clone" in data["verdict"]
 
-def test_analyze_audio_classification_hyper_realistic_clone():
+def test_analyze_audio_classification_medium_risk_human():
     wav_bytes = create_dummy_wav_bytes(2.5)
     mock_res = {"chunk_score": 0.32, "confidence": 0.85, "flags": ["short_audio", "prosody_flatness"]}
     with patch("app.main.analyze_chunk_dispatch", new=AsyncMock(return_value=mock_res)):
-        files = {"file": ("clone_sample.wav", wav_bytes, "audio/wav")}
+        files = {"file": ("human_sample.wav", wav_bytes, "audio/wav")}
         response = client.post("/api/analyze-audio", files=files)
         assert response.status_code == 200
         data = response.json()
-        assert data["classification"] == "ai_clone"
+        assert data["classification"] == "human"
         assert data["alert_level"] == "medium"
-        assert "Suspected AI Voice Clone" in data["verdict"]
+        assert "Genuine Human Voice" in data["verdict"]
+
+
+def test_analyze_chunk_endpoint_live_stream():
+    wav_bytes = create_dummy_wav_bytes(2.0)
+    mock_res = {"chunk_score": 0.85, "confidence": 0.95, "flags": ["synthetic_artifact"]}
+    with patch("app.main.analyze_chunk_dispatch", new=AsyncMock(return_value=mock_res)):
+        files = {"file": ("live_chunk_001.wav", wav_bytes, "audio/wav")}
+        data_fields = {"session_id": "test_live_session_123", "chunk_index": 1}
+        response = client.post("/api/analyze-chunk", files=files, data=data_fields)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["session_id"] == "test_live_session_123"
+        assert data["chunk_index"] == 1
+        assert data["classification"] == "ai_clone"
+        assert "rolling_risk_score" in data
+        assert data["rolling_risk_score"] > 0.0
+
 

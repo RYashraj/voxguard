@@ -19,6 +19,18 @@ interface LiveVoiceDetectorProps {
   apiBaseUrl?: string;
 }
 
+interface LiveChunkResult {
+  chunkIndex: number;
+  classification: "human" | "ai_clone";
+  verdict: string;
+  spoof_score: number;
+  rolling_risk_score: number;
+  alert_level: "low" | "medium" | "high";
+  flags: string[];
+  explanation: string;
+  timestamp: string;
+}
+
 export default function LiveVoiceDetector({
   apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000",
 }: LiveVoiceDetectorProps) {
@@ -32,21 +44,31 @@ export default function LiveVoiceDetector({
   const [result, setResult] = useState<AudioAnalysisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Live real-time streaming detection state (while recording)
+  const [liveResult, setLiveResult] = useState<LiveChunkResult | null>(null);
+  const [liveStreamHistory, setLiveStreamHistory] = useState<LiveChunkResult[]>([]);
+  const [isLiveAnalyzing, setIsLiveAnalyzing] = useState<boolean>(false);
+
   // File upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const liveChunkTimerRef = useRef<NodeJS.Timeout | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const sessionIdRef = useRef<string>("");
+  const chunkIndexRef = useRef<number>(1);
+  const lastAnalyzedChunkLengthRef = useRef<number>(0);
 
   // Clean up on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (liveChunkTimerRef.current) clearInterval(liveChunkTimerRef.current);
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         audioContextRef.current.close().catch(() => {});
@@ -86,7 +108,6 @@ export default function LiveVoiceDetector({
 
         for (let i = 0; i < bufferLength; i++) {
           const barHeight = (dataArray[i] / 255) * canvas.height * 0.9;
-          // Gradient styling
           ctx.fillStyle = "#d97757";
           ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
           x += barWidth;
@@ -98,11 +119,77 @@ export default function LiveVoiceDetector({
     }
   }
 
+  // Sends the current audio slice/accumulated recorded chunk for live streaming detection
+  async function sendLiveChunkForAnalysis(mimeType: string) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      try {
+        mediaRecorderRef.current.requestData();
+      } catch (err) {
+        console.warn("MediaRecorder requestData warning:", err);
+      }
+    }
+
+    if (audioChunksRef.current.length === 0) return;
+    if (audioChunksRef.current.length === lastAnalyzedChunkLengthRef.current) return;
+
+    lastAnalyzedChunkLengthRef.current = audioChunksRef.current.length;
+    setIsLiveAnalyzing(true);
+
+    try {
+      const mime = mimeType || "audio/webm";
+      const currentBlob = new Blob(audioChunksRef.current, { type: mime });
+      const ext = currentBlob.type.includes("mp4") ? "m4a" : "webm";
+      const formData = new FormData();
+      formData.append("file", currentBlob, `chunk_${chunkIndexRef.current}.${ext}`);
+      formData.append("session_id", sessionIdRef.current);
+      formData.append("chunk_index", String(chunkIndexRef.current));
+
+      const res = await fetch(`${apiBaseUrl}/api/analyze-chunk`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        console.warn(`Live chunk analysis HTTP error: ${res.status}`);
+        return;
+      }
+      const data = await res.json();
+
+      if (data.status === "success") {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const liveChunk: LiveChunkResult = {
+          chunkIndex: chunkIndexRef.current,
+          classification: data.classification,
+          verdict: data.verdict,
+          spoof_score: data.spoof_score,
+          rolling_risk_score: data.rolling_risk_score,
+          alert_level: data.alert_level,
+          flags: data.flags || [],
+          explanation: data.explanation,
+          timestamp: timeStr,
+        };
+
+        setLiveResult(liveChunk);
+        setLiveStreamHistory((prev) => [liveChunk, ...prev]);
+        chunkIndexRef.current += 1;
+      }
+    } catch (e) {
+      console.warn("Live chunk streaming analysis error:", e);
+    } finally {
+      setIsLiveAnalyzing(false);
+    }
+  }
+
   async function handleStartRecording() {
     setErrorMsg(null);
     setResult(null);
     setAudioBlob(null);
+    setLiveResult(null);
+    setLiveStreamHistory([]);
     audioChunksRef.current = [];
+    sessionIdRef.current = `live_session_${Date.now()}`;
+    chunkIndexRef.current = 1;
+    lastAnalyzedChunkLengthRef.current = 0;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -147,6 +234,12 @@ export default function LiveVoiceDetector({
       timerRef.current = setInterval(() => {
         setRecordDuration((prev) => prev + 1);
       }, 1000);
+
+      // Trigger continuous live chunk analysis every 2 seconds while recording
+      liveChunkTimerRef.current = setInterval(() => {
+        sendLiveChunkForAnalysis(mimeType);
+      }, 2000);
+
     } catch (err) {
       console.error("Microphone access error:", err);
       setErrorMsg("Microphone permission denied or device not found. Please allow microphone access.");
@@ -160,6 +253,10 @@ export default function LiveVoiceDetector({
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
+      }
+      if (liveChunkTimerRef.current) {
+        clearInterval(liveChunkTimerRef.current);
+        liveChunkTimerRef.current = null;
       }
     }
   }
@@ -241,7 +338,7 @@ export default function LiveVoiceDetector({
             <span>🎙️</span> Real-Time Voice Impersonation Detector
           </h2>
           <p className="text-xs text-muted mt-1">
-            Test any live voice or audio clip to detect whether it is genuine human speech or an AI voice clone.
+            Analyze live audio streams second-by-second while recording to detect AI voice clones in real-time.
           </p>
         </div>
 
@@ -255,7 +352,7 @@ export default function LiveVoiceDetector({
                 : "text-muted hover:text-foreground"
             }`}
           >
-            Live Mic Input
+            Live Call Mic Input
           </button>
           <button
             onClick={() => { setActiveTab("upload"); setErrorMsg(null); }}
@@ -279,12 +376,25 @@ export default function LiveVoiceDetector({
       {/* Tab 1: Live Mic Input */}
       {activeTab === "mic" && (
         <div className="mt-6 flex flex-col items-center text-center">
+          {/* Real-time Call Banner when recording */}
+          {isRecording && (
+            <div className="mb-4 w-full max-w-md flex items-center justify-between rounded-control border border-risk-highBorder bg-risk-highBg/20 px-3.5 py-2 text-xs font-semibold text-risk-high animate-pulse">
+              <span className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-risk-high animate-ping" />
+                LIVE CALL MONITORING ACTIVE
+              </span>
+              <span className="font-mono text-[11px]">
+                {isLiveAnalyzing ? "Analyzing Chunk..." : "Streaming Audio..."}
+              </span>
+            </div>
+          )}
+
           {/* Animated Visualizer Box */}
           <div className="relative flex h-24 w-full max-w-md items-center justify-center rounded-control border border-border bg-background px-4">
             <canvas ref={canvasRef} width={280} height={70} className="w-full h-full" />
             {!isRecording && !audioBlob && (
               <span className="absolute text-xs text-muted text-center px-4">
-                Press &quot;Record Voice&quot; and speak for 3–5 seconds
+                Press &quot;Record Live Call&quot; and speak into microphone
               </span>
             )}
             {isRecording && (
@@ -294,7 +404,7 @@ export default function LiveVoiceDetector({
                   REC {formatTime(recordDuration)}
                 </span>
                 <span className="absolute bottom-2 text-[11px] text-muted font-sans">
-                  {recordDuration < 3 ? "Keep speaking (3s minimum for best accuracy)..." : "✓ Good duration! Click Stop when finished"}
+                  {recordDuration < 2 ? "Initializing live detection stream..." : "✓ Live detection running as you speak"}
                 </span>
               </>
             )}
@@ -308,7 +418,7 @@ export default function LiveVoiceDetector({
                 disabled={isAnalyzing}
                 className="btn-tactile flex items-center gap-2 rounded-control bg-accent px-5 py-2.5 text-sm font-medium text-accent-contrast shadow-card hover:opacity-90 disabled:opacity-50"
               >
-                <span>🔴</span> Record Voice (Speak Now)
+                <span>🔴</span> Record Live Call (Start Real-Time Detection)
               </button>
             )}
 
@@ -317,7 +427,7 @@ export default function LiveVoiceDetector({
                 onClick={handleStopRecording}
                 className="btn-tactile flex items-center gap-2 rounded-control bg-risk-high px-5 py-2.5 text-sm font-medium text-white shadow-card hover:opacity-90"
               >
-                <span>⏹️</span> Stop Recording ({formatTime(recordDuration)})
+                <span>⏹️</span> End Live Call ({formatTime(recordDuration)})
               </button>
             )}
 
@@ -331,11 +441,11 @@ export default function LiveVoiceDetector({
                   {isAnalyzing ? (
                     <>
                       <span className="h-4 w-4 rounded-full border-2 border-accent-contrast border-t-transparent animate-spin" />
-                      Analyzing Neural Spectra…
+                      Generating Consolidated Verdict…
                     </>
                   ) : (
                     <>
-                      <span>🔍</span> Test Voice: Is it Human or AI?
+                      <span>🔍</span> Full Audio Summary Analysis
                     </>
                   )}
                 </button>
@@ -344,11 +454,119 @@ export default function LiveVoiceDetector({
                   disabled={isAnalyzing}
                   className="btn-tactile rounded-control border border-border bg-surface px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:text-foreground"
                 >
-                  Re-record
+                  Start New Call Recording
                 </button>
               </>
             )}
           </div>
+
+          {/* LIVE STREAM REAL-TIME DETECTION CARD (Visible WHILE recording or after chunk streamed) */}
+          {(isRecording || liveResult) && (
+            <div className="mt-6 w-full max-w-lg text-left rounded-card border border-border bg-surface-raised p-4 shadow-card animate-fade-in">
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <span className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted">Real-Time Stream Verdict</span>
+                  <h4 className="text-lg font-bold text-foreground mt-0.5 flex items-center gap-2">
+                    {liveResult ? (
+                      liveResult.classification === "ai_clone" ? (
+                        <>
+                          <span className="h-3 w-3 rounded-full bg-risk-high animate-pulse" />
+                          <span className="text-risk-high">AI Voice Clone Detected</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="h-3 w-3 rounded-full bg-risk-low" />
+                          <span className="text-risk-low">Genuine Human Voice Verified</span>
+                        </>
+                      )
+                    ) : (
+                      <span className="text-muted text-sm italic flex items-center gap-1.5">
+                        <span className="h-3 w-3 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+                        Listening & analyzing acoustic frames...
+                      </span>
+                    )}
+                  </h4>
+                </div>
+
+                {liveResult && (
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide border ${
+                    liveResult.alert_level === "high"
+                      ? "bg-risk-highBg text-risk-high border-risk-highBorder animate-pulse"
+                      : liveResult.alert_level === "medium"
+                      ? "bg-risk-mediumBg text-risk-medium border-risk-mediumBorder"
+                      : "bg-risk-lowBg text-risk-low border-risk-lowBorder"
+                  }`}>
+                    {liveResult.alert_level} risk
+                  </span>
+                )}
+              </div>
+
+              {liveResult && (
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="rounded-control border border-border bg-surface p-2.5 text-center">
+                    <span className="text-[11px] text-muted">Rolling Risk Score</span>
+                    <div className="text-base font-bold text-foreground mt-0.5">
+                      {(liveResult.rolling_risk_score * 100).toFixed(1)}%
+                    </div>
+                    <div className="w-full bg-background rounded-full h-1.5 mt-1.5 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          liveResult.rolling_risk_score > 0.4 ? "bg-risk-high" : "bg-risk-low"
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(5, liveResult.rolling_risk_score * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-control border border-border bg-surface p-2.5 text-center">
+                    <span className="text-[11px] text-muted">Latest Chunk Spoof</span>
+                    <div className="text-base font-bold text-foreground mt-0.5">
+                      {(liveResult.spoof_score * 100).toFixed(1)}%
+                    </div>
+                    <div className="w-full bg-background rounded-full h-1.5 mt-1.5 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          liveResult.spoof_score > 0.4 ? "bg-risk-high" : "bg-risk-low"
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(5, liveResult.spoof_score * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Real-time Chunk Stream History Log */}
+              {liveStreamHistory.length > 0 && (
+                <div className="mt-4 border-t border-border pt-3">
+                  <span className="text-[11px] font-mono font-medium text-muted uppercase">Live Chunk Timeline ({liveStreamHistory.length} analyzed)</span>
+                  <div className="mt-2 max-h-32 overflow-y-auto space-y-1.5 pr-1 text-xs">
+                    {liveStreamHistory.map((item) => (
+                      <div
+                        key={item.chunkIndex}
+                        className="flex items-center justify-between rounded-control border border-border bg-surface px-2.5 py-1.5 font-mono text-[11px]"
+                      >
+                        <span className="text-muted">
+                          [{item.timestamp}] Chunk #{item.chunkIndex}
+                        </span>
+                        <span className="font-semibold flex items-center gap-1.5">
+                          {item.classification === "ai_clone" ? (
+                            <span className="text-risk-high flex items-center gap-1">
+                              🔴 Clone ({(item.spoof_score * 100).toFixed(0)}%)
+                            </span>
+                          ) : (
+                            <span className="text-risk-low flex items-center gap-1">
+                              🟢 Human ({(item.spoof_score * 100).toFixed(0)}%)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
       )}
 
