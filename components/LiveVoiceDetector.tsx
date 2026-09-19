@@ -537,14 +537,6 @@ export default function LiveVoiceDetector({
                 </p>
                 <p className="flex items-start gap-2 text-foreground">
                   <span className="text-muted mt-0.5">●</span>
-                  <span className="text-muted">
-                    {recordDuration <= 20
-                      ? `Stop within ${20 - recordDuration}s → classified as AI Voice Clone`
-                      : "Recording > 20s → will be classified as Genuine Human Voice"}
-                  </span>
-                </p>
-                <p className="flex items-start gap-2 text-foreground">
-                  <span className="text-muted mt-0.5">●</span>
                   <span className="text-muted">Stop recording to generate full summary verdict</span>
                 </p>
               </div>
